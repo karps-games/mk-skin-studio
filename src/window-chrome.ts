@@ -41,6 +41,7 @@ export function initWindowChrome(version: string, beforeClose: () => Promise<boo
   document.body.prepend(bar);
   document.body.classList.add("window-chrome-mounted");
   document.documentElement.dataset.os = OS;
+  if (IS_LINUX && (window as { __MKSS_ROUNDED__?: boolean }).__MKSS_ROUNDED__) document.documentElement.classList.add("window-rounded");
   if (IS_MAC) {
     bar.classList.add("app-titlebar-mac");
     controls.hidden = true;

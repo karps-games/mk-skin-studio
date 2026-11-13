@@ -15,6 +15,8 @@ pub mod u8arc;
 pub mod yaz0;
 #[cfg(target_os = "windows")]
 mod window_size;
+#[cfg(target_os = "linux")]
+mod linux_window;
 #[cfg(test)]
 mod tests;
 
@@ -534,6 +536,8 @@ pub fn run() {
         .setup(|app| {
             let cwd = std::env::current_dir().unwrap_or_default();
             app.state::<OpenRequests>().0.lock().unwrap().extend(mkss_args(std::env::args().skip(1), &cwd));
+            #[cfg(target_os = "linux")]
+            linux_window::create(app)?;
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
                 window_size::install(&window)?;

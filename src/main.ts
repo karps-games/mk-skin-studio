@@ -12,7 +12,7 @@ import { Editor, type CharacterView } from "./editor/editor";
 import { apply as applyProject, parseManifest, serialize, type Project } from "./editor/project";
 import { composite } from "./editor/doc";
 
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 type Tab = "projects" | "new" | "characters" | "studio";
 interface CharacterSummary { code: string; name: string; files: number; portrait?: string | null }
 interface GameInfo { root: string; source: "folder" | "image"; id?: string | null; characters: CharacterSummary[] }

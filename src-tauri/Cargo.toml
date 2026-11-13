@@ -1,6 +1,6 @@
 [package]
 name = "mk-skin-studio"
-version = "1.0.0"
+version = "1.0.1"
 description = "Skin studio for Mario Kart Wii characters. Not affiliated with Nintendo."
 authors = ["Karps Games"]
 license = "GPL-3.0-or-later"
@@ -31,6 +31,9 @@ nod = "1.4.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 
 [profile.dev.package."*"]
 opt-level = 3

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { inflateSync } from "node:zlib";
 import { resolve } from "node:path";
 import { startHarness, layoutProbe, root, sleep } from "./ui-harness.mjs";
 
@@ -7,7 +8,7 @@ const evidence = resolve(root, "design/screens");
 mkdirSync(evidence, { recursive: true });
 
 const fixture = `
-(()=>{const q=new URLSearchParams(location.search);if(q.has('theme'))localStorage.setItem('karps.theme',q.get('theme'));if(q.has('lang'))localStorage.setItem('karps.lang',q.get('lang'));})();
+(()=>{const q=new URLSearchParams(location.search);if(q.has('theme'))localStorage.setItem('karps.theme',q.get('theme'));if(q.has('lang'))localStorage.setItem('karps.lang',q.get('lang'));if(q.has('rounded'))window.__MKSS_ROUNDED__=true;})();
 window.calls=[];
 const KEEP=new URLSearchParams(location.search).has('keep');
 const saved=KEEP?JSON.parse(localStorage.getItem('fx.state')||'null'):null;
@@ -1221,6 +1222,75 @@ async function projectFlow() {
   await value("localStorage.setItem('karps.theme','light')");
 }
 
+function pngPixels(buf) {
+  let o = 8, w = 0, h = 0, type = 0;
+  const idat = [];
+  while (o < buf.length) {
+    const len = buf.readUInt32BE(o), kind = buf.toString("ascii", o + 4, o + 8), body = buf.subarray(o + 8, o + 8 + len);
+    if (kind === "IHDR") { w = body.readUInt32BE(0); h = body.readUInt32BE(4); type = body[9]; }
+    if (kind === "IDAT") idat.push(body);
+    o += 12 + len;
+  }
+  const bpp = type === 6 ? 4 : 3, stride = w * bpp, raw = inflateSync(Buffer.concat(idat)), out = Buffer.alloc(w * h * 4);
+  let prev = Buffer.alloc(stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? line[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
+      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      line[i] = (line[i] + [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][f]) & 255;
+    }
+    for (let x = 0; x < w; x++) for (let k = 0; k < 4; k++) out[(y * w + x) * 4 + k] = k < bpp ? line[x * bpp + k] : 255;
+    prev = line;
+  }
+  return { w, h, at: (x, y) => Array.from(out.subarray((y * w + x) * 4, (y * w + x) * 4 + 4)) };
+}
+
+async function linuxWindow() {
+  const T = "[linux window]";
+  const { userAgent } = await send("Browser.getVersion");
+  await send("Emulation.setUserAgentOverride", { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)", platform: "Linux x86_64" });
+  const fill = `(()=>{const s=document.querySelector('.sidebar').getBoundingClientRect(),m=document.querySelector('main.main').getBoundingClientRect();return {os:document.documentElement.dataset.os,edges:document.querySelectorAll('.window-resize-edges .window-resize-edge').length,rows:getComputedStyle(document.body).gridTemplateRows,sideTop:s.top,sideBottom:s.bottom,mainBottom:m.bottom,left:Math.min(s.left,m.left),h:innerHeight};})()`;
+  const corners = async () => {
+    const { data } = await send("Page.captureScreenshot", { format: "png" });
+    const img = pngPixels(Buffer.from(data, "base64"));
+    return { corner: [img.at(0, 0)[3], img.at(img.w - 1, 0)[3], img.at(0, img.h - 1)[3], img.at(img.w - 1, img.h - 1)[3]], inside: [img.at(8, 8)[3], img.at(img.w >> 1, img.h - 1)[3], img.at(0, img.h >> 1)[3]] };
+  };
+  try {
+    await send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
+    for (const [w, h] of [[1280, 720], [1440, 900], [1920, 1080]]) {
+      await boot("light", "en", w, h);
+      const f = await value(fill);
+      check(`${T} ${w}x${h} sidebar and main fill the window below the title bar`, f.os === "linux" && f.edges === 8 && f.rows.trim().split(/\s+/).length === 1 && f.sideTop === 32 && f.sideBottom === f.h && f.mainBottom === f.h && f.left === 0, f);
+      const c = await corners();
+      check(`${T} ${w}x${h} square opaque window without compositor support`, !(await value("document.documentElement.classList.contains('window-rounded')")) && [...c.corner, ...c.inside].every((a) => a === 255), c);
+    }
+    for (const theme of ["light", "dark"]) {
+      await size(1280, 720);
+      await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
+      await send("Page.navigate", { url: `${H.origin}ui-test?theme=${theme}&lang=en&rounded=1` });
+      await wait("document.documentElement?.dataset.ready==='1'", 600);
+      await sleep(250);
+      check(`${T} ${theme} rounded window keeps the full layout`, (await value("document.documentElement.classList.contains('window-rounded')")) && (await value(fill)).sideBottom === 720, await value(fill));
+      let c = await corners();
+      check(`${T} ${theme} rounded corners are transparent, edges stay opaque`, c.corner.every((a) => a === 0) && c.inside.every((a) => a === 255), c);
+      if (theme === "dark") await shot("13-linux-rounded-dark-en");
+      await click("#btn-settings");
+      c = await corners();
+      check(`${T} ${theme} modal backdrop follows the rounded corners`, c.corner.every((a) => a === 0) && c.inside[1] === 255, c);
+      await value("document.getElementById('settings-dialog').close()");
+      await value("document.body.classList.add('window-maximized')");
+      await sleep(100);
+      c = await corners();
+      check(`${T} ${theme} maximized window is square and opaque`, [...c.corner, ...c.inside].every((a) => a === 255) && (await value("getComputedStyle(document.querySelector('.window-resize-edges')).display")) === "none", c);
+    }
+  } finally {
+    await send("Emulation.setDefaultBackgroundColorOverride", {});
+    await send("Emulation.setUserAgentOverride", { userAgent });
+    await send("Emulation.setEmulatedMedia", { features: [] });
+  }
+}
+
 try {
   await projectFlow();
   await handAndOutfits();
@@ -1231,6 +1301,7 @@ try {
   await sliderDesign();
   await portraitScenarios();
   await discoveryScenarios();
+  await linuxWindow();
   for (const theme of ["light", "dark"])
     for (const lang of ["en", "pt", "fr"]) {
       await layout(theme, lang, 1280, 720, lang !== "fr");

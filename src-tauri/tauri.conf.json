@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MK Skin Studio",
   "mainBinaryName": "MK Skin Studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.karps.mkss",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -63,7 +63,12 @@
       },
       "nsis": {
         "languages": ["English"],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "nsis/header.bmp",
+        "sidebarImage": "nsis/sidebar.bmp",
+        "uninstallerHeaderImage": "nsis/header.bmp"
       }
     },
     "linux": {

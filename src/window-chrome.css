@@ -22,6 +22,7 @@ body.window-chrome-mounted { box-sizing: border-box; padding-top: 32px; }
 :root[data-theme=dark] .app-titlebar .window-control-close:hover:not(:disabled) { background: #c42b1c; color: #fff; }
 .app-titlebar.app-titlebar-mac { padding-left: 78px; }
 .app-titlebar-mac .window-controls[hidden] { display: none; }
+.window-resize-edges { display: contents; }
 .window-resize-edge { position: fixed; z-index: 1000; background: transparent; }
 .window-resize-n { top: 0; left: 12px; right: 12px; height: 4px; cursor: n-resize; }
 .window-resize-s { bottom: 0; left: 12px; right: 12px; height: 6px; cursor: s-resize; }
@@ -33,3 +34,9 @@ body.window-chrome-mounted { box-sizing: border-box; padding-top: 32px; }
 .window-resize-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: sw-resize; }
 body.window-maximized .window-resize-edges { display: none; }
 body.window-chrome-mounted .p3d-stage { height: clamp(160px, calc(100vh - 502px), 250px); }
+:root.window-rounded { background: transparent; }
+:root.window-rounded body { background: transparent; clip-path: inset(0 round 8px); }
+:root.window-rounded body::before { content: ""; position: fixed; inset: 0; z-index: -1; background: var(--bg); pointer-events: none; }
+:root.window-rounded .settings-dialog::backdrop { border-radius: 8px; }
+:root.window-rounded body.window-maximized { clip-path: none; }
+:root.window-rounded:has(body.window-maximized) .settings-dialog::backdrop { border-radius: 0; }
