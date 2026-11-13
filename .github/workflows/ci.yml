@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: TypeScript + i18n
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: node tools/test-i18n.mjs
+
+  rust:
+    name: cargo test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      MKSS_TEST_SCRATCH: ${{ github.workspace }}/test-scratch
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config clang
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      - run: npm run build
+      - name: cargo test --lib
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          mkdir -p "$MKSS_TEST_SCRATCH"
+          cargo test --lib -- --test-threads=1
+
+  ui:
+    name: UI suite (headless Chrome)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: node tools/test-ui.mjs
+        env:
+          MKSS_BROWSER: /usr/bin/google-chrome
+        run: node tools/test-ui.mjs < /dev/null
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ui-screens
+          path: design/screens/
+          if-no-files-found: ignore

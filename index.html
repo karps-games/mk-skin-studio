@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () { var r = document.documentElement, p = "system"; try { p = localStorage.getItem("karps.theme"); } catch (e) {}
+        if (p !== "light" && p !== "dark") p = "system";
+        r.dataset.themePref = p; r.dataset.theme = p === "system" ? (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : p; })();
+    </script>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/editor.css" />
+    <link rel="stylesheet" href="/src/theme-dark.css" />
+    <link rel="stylesheet" href="/src/window-chrome.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MK Skin Studio</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="logo" src="/logo.png" alt="MK Skin Studio" width="128" height="128" />
+        <div class="brand-text">
+          <span data-i18n="brand.sub">Skin studio for Mario Kart Wii</span>
+        </div>
+      </div>
+      <nav class="app-tabs" data-i18n-aria="tab.nav" aria-label="Main">
+        <button type="button" data-tab="projects" data-i18n-aria="tab.projects"><svg class="tab-ic" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.5A1.5 1.5 0 0 1 4.5 4h5l2 2h8A1.5 1.5 0 0 1 21 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13Zm2 2.5v10h14V8H5Z"/></svg><span class="lbl" data-i18n="tab.projects">Projects</span></button>
+      </nav>
+      <div class="side-foot">
+        <div class="foot-row">
+          <button type="button" id="btn-discord" class="foot-btn" data-i18n-title="top.discord"><svg width="15" height="12" viewBox="0 0 24 18" aria-hidden="true"><path fill="currentColor" d="M20.3 1.5A19.6 19.6 0 0 0 15.4 0l-.6 1.3a18.1 18.1 0 0 0-5.6 0L8.6 0a19.6 19.6 0 0 0-4.9 1.5C.6 6.1-.3 10.6.1 15a19.8 19.8 0 0 0 6 3l1.3-2a12.7 12.7 0 0 1-2-1l.5-.4a14.1 14.1 0 0 0 12.2 0l.5.4c-.6.4-1.3.7-2 1l1.3 2a19.7 19.7 0 0 0 6-3c.5-5.1-.8-9.5-3.6-13.5ZM8 12.3c-1.2 0-2.2-1.1-2.2-2.4S6.8 7.5 8 7.5s2.2 1.1 2.2 2.4-1 2.4-2.2 2.4Zm8 0c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4Z"/></svg><span class="sr-only" data-i18n="top.discord"></span></button>
+          <button type="button" id="btn-donate" class="foot-btn" data-i18n-title="side.donate"><svg class="foot-ic" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M11.351 2.715c-2.7 0-4.986.025-6.83.26C2.078 3.285 0 5.154 0 8.61c0 3.506.182 6.13 1.585 8.493 1.584 2.701 4.233 4.182 7.662 4.182h.83c4.209 0 6.494-2.234 7.637-4a9.5 9.5 0 0 0 1.091-2.338C21.792 14.688 24 12.22 24 9.208v-.415c0-3.247-2.13-5.507-5.792-5.870-1.558-.156-2.65-.208-6.857-.208m0 1.947c4.208 0 5.09.052 6.571.182 2.624.311 4.13 1.584 4.13 4v.39c0 2.156-1.792 3.844-3.87 3.844h-.935l-.156.649c-.208 1.013-.597 1.818-1.039 2.546-.909 1.428-2.545 3.064-5.922 3.064h-.805c-2.571 0-4.831-.883-6.078-3.195-1.09-2-1.298-4.155-1.298-7.506 0-2.181.857-3.402 3.012-3.714 1.533-.233 3.559-.26 6.39-.26m6.547 2.287c-.416 0-.65.234-.65.546v2.935c0 .311.234.545.65.545 1.324 0 2.051-.754 2.051-2s-.727-2.026-2.052-2.026m-10.39.182c-1.818 0-3.013 1.48-3.013 3.142 0 1.533.858 2.857 1.949 3.897.727.701 1.87 1.429 2.649 1.896a1.47 1.47 0 0 0 1.507 0c.78-.467 1.922-1.195 2.623-1.896 1.117-1.039 1.974-2.364 1.974-3.897 0-1.662-1.247-3.142-3.039-3.142-1.065 0-1.792.545-2.338 1.298-.493-.753-1.246-1.298-2.312-1.298"/></svg><span class="sr-only" data-i18n="side.donate">Donate</span></button>
+          <button type="button" id="btn-tour" class="foot-btn" data-i18n-title="top.tutorial" aria-haspopup="dialog" aria-controls="tour-dialog"><svg class="foot-ic" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3Zm-6.5 9.2v3.6C7.2 17.8 9.5 19 12 19s4.8-1.2 6.5-3.2v-3.6L12 15.7l-6.5-3.5Z"/></svg><span class="sr-only" data-i18n="top.tutorial"></span></button>
+          <button type="button" id="btn-about" class="foot-btn" data-i18n-title="side.about" popovertarget="about-pop"><svg class="foot-ic" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-6h2v6Zm0-8h-2V7h2v2Z"/></svg><span class="sr-only" data-i18n="side.about"></span></button>
+          <button type="button" id="btn-settings" class="foot-btn" data-i18n-title="set.title" aria-haspopup="dialog" aria-controls="settings-dialog">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 3-.6 2.1-1.8 1-2.1-.5-2.5 4.3L4 11.5v2L2.5 15 5 19.3l2.1-.5 1.8 1 .6 2.2h5l.6-2.2 1.8-1 2.1.5 2.5-4.3-1.5-1.5v-2L21.5 10 19 5.6l-2.1.5-1.8-1-.6-2.1Z"/><circle cx="12" cy="12.5" r="3.2"/></svg>
+            <span class="sr-only" data-i18n="set.title">Settings</span>
+          </button>
+          <span class="ver" id="ver">v1.0.0</span>
+        </div>
+        <p class="legal" data-i18n="legal.na">Not affiliated with Nintendo.</p>
+      </div>
+    </aside>
+
+    <div id="about-pop" class="about-pop" popover aria-labelledby="about-title">
+      <p id="about-title" class="about-title">MK Skin Studio <span>v1.0.0</span></p>
+      <p class="about-by" data-i18n="side.aboutBy"></p>
+      <p data-i18n="side.aboutText"></p>
+      <p class="muted" data-i18n="side.aboutLicense"></p>
+      <p class="about-legal" data-i18n="legal.na"></p>
+    </div>
+
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+      <header class="settings-head">
+        <h2 id="settings-title" data-i18n="set.title">Settings</h2>
+        <button type="button" id="btn-settings-close" class="settings-close" data-i18n-title="window.close"><svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M4 4 20 20M20 4 4 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><span class="sr-only" data-i18n="window.close">Close</span></button>
+      </header>
+      <div class="settings-fields">
+        <label class="field">
+          <span data-i18n="set.theme">Theme</span>
+          <select id="opt-theme">
+            <option value="system" data-i18n="set.system">System</option>
+            <option value="light" data-i18n="set.light">Light</option>
+            <option value="dark" data-i18n="set.dark">Dark</option>
+          </select>
+        </label>
+        <div class="field" role="group" aria-labelledby="settings-language">
+          <span id="settings-language" data-i18n="top.lang">Language</span>
+          <div id="lang-picker" class="lang-picker"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="tour-dialog" class="settings-dialog tour-dialog" aria-labelledby="tour-title" aria-describedby="tour-text">
+      <header class="settings-head">
+        <h2 id="tour-title"></h2>
+        <button type="button" id="tour-close" class="settings-close" data-i18n-title="window.close"><svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M4 4 20 20M20 4 4 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><span class="sr-only" data-i18n="window.close">Close</span></button>
+      </header>
+      <div class="tour-body"><p id="tour-progress" class="muted" aria-live="polite"></p><p id="tour-text"></p></div>
+      <footer class="tour-actions"><button type="button" id="tour-back"></button><button type="button" id="tour-next" class="primary"></button></footer>
+    </dialog>
+
+    <dialog id="ask-dialog" class="settings-dialog ask-dialog" aria-labelledby="ask-title" aria-describedby="ask-text">
+      <header class="settings-head"><h2 id="ask-title"></h2></header>
+      <div class="ask-body"><p id="ask-text"></p><label id="ask-field" class="field wide hidden"><span id="ask-label"></span><input id="ask-input" maxlength="80" /></label></div>
+      <footer id="ask-actions" class="ask-actions"></footer>
+    </dialog>
+
+    <main class="main">
+      <section id="view-projects" class="view">
+        <header class="view-head row">
+          <div class="head-text"><h1 data-i18n="projects.title">Projects</h1><p class="lead" data-i18n="projects.lead"></p></div>
+          <div class="head-actions">
+            <button type="button" id="btn-import-project" class="text-action" data-i18n="projects.import">Open project file…</button>
+            <button type="button" id="btn-new-project" class="primary" data-i18n="projects.new">New project</button>
+          </div>
+        </header>
+        <div id="proj-empty" class="card empty-state hidden">
+          <h2 data-i18n="projects.emptyTitle"></h2>
+          <p data-i18n="projects.emptyText"></p>
+          <ol class="how">
+            <li data-i18n="projects.step1"></li>
+            <li data-i18n="projects.step2"></li>
+            <li data-i18n="projects.step3"></li>
+          </ol>
+          <button type="button" id="btn-new-project-empty" class="primary big" data-i18n="projects.new">New project</button>
+        </div>
+        <ul id="proj-list" class="proj-list"></ul>
+        <div id="proj-menu" class="popover proj-menu hidden" role="menu">
+          <button type="button" role="menuitem" data-act="rename" data-i18n="projects.rename"></button>
+          <button type="button" role="menuitem" data-act="duplicate" data-i18n="projects.duplicate"></button>
+          <button type="button" role="menuitem" data-act="export" data-i18n="projects.exportZip"></button>
+          <button type="button" role="menuitem" data-act="copy" data-i18n="projects.saveCopy"></button>
+          <button type="button" role="menuitem" data-act="delete" class="danger" data-i18n="projects.delete"></button>
+        </div>
+      </section>
+
+      <section id="view-new" class="view hidden">
+        <header class="view-head">
+          <button type="button" id="btn-new-back" class="text-action back-link"><span aria-hidden="true">←</span> <span data-i18n="new.back">Back to Projects</span></button>
+          <h1 id="new-title" data-i18n="new.title">New project</h1>
+          <p class="lead" id="new-lead" data-i18n="new.lead"></p>
+        </header>
+        <div class="card name-card" id="new-name-card">
+          <label class="field name-field"><span data-i18n="projects.nameLabel">Project name</span><input id="new-name" maxlength="80" autocomplete="off" /></label>
+        </div>
+        <div class="card game-open-card">
+          <section class="game-discovery" aria-labelledby="game-discovery-title">
+            <div class="discovery-head"><h2 id="game-discovery-title" data-i18n="game.discoveryTitle"></h2><button type="button" id="btn-scan-game" class="game-text-action" data-i18n="game.scanAgain"></button></div>
+            <p id="game-scan-state" class="discovery-state" role="status" aria-live="polite"></p>
+            <div class="game-selection-row">
+              <div class="game-selection-main">
+                <div id="game-detected" class="detected-game hidden">
+                  <p id="game-selected-name" class="selected-game-name"></p>
+                  <label id="detected-choice" class="field"><span class="sr-only" data-i18n="game.selectedLabel"></span><select id="detected-game"></select></label>
+                  <p id="detected-path" class="path" tabindex="0"></p>
+                </div>
+                <button type="button" id="btn-open-image" class="game-text-action" data-i18n="game.chooseManual">Choose manually…</button>
+                <p class="note game-format-note" data-i18n="game.imageText"></p>
+                <p id="game-scan-limit" class="note hidden" data-i18n="game.scanLimited"></p>
+              </div>
+              <button type="button" id="btn-use-detected" class="primary big" data-i18n="game.useDetected" disabled></button>
+            </div>
+          </section>
+          <details id="game-alternatives" class="game-alternatives">
+            <summary data-i18n="game.moreOptions"></summary>
+            <div class="folder-option">
+              <div><h3 data-i18n="game.folderTitle">Extracted game folder</h3><p data-i18n="game.folderText"></p></div>
+              <button type="button" id="btn-open-folder" data-i18n="game.folderBtn">Choose folder…</button>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="view-characters" class="view hidden">
+        <header class="proj-head">
+          <div class="proj-title">
+            <label class="sr-only" for="proj-name" data-i18n="projects.nameLabel">Project name</label>
+            <input id="proj-name" class="title-input" maxlength="80" autocomplete="off" data-i18n-title="projects.renameTitle" />
+            <span id="proj-saved" class="save-state ok" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m9.5 16.2-4.2-4.2-1.4 1.4 5.6 5.6 11-11-1.4-1.4z"/></svg><span data-i18n="chars.saved">Saved</span></span>
+          </div>
+          <div class="export-box">
+            <button type="button" id="btn-export-mod" class="primary big" data-i18n="chars.export">Export mod (.zip)…</button>
+            <p id="export-why" class="note"></p>
+          </div>
+        </header>
+        <div class="project-feedback" role="status" aria-live="polite">
+        <p class="lead chars-hint" data-i18n="chars.hint"></p>
+        <div id="export-progress" class="progress hidden"><progress id="build-bar" max="1" value="0"></progress><span id="build-text" class="muted small"></span></div>
+        <div id="export-done" class="done-line hidden"><strong id="export-done-text"></strong><span id="export-done-path" class="path"></span><button type="button" id="btn-show" class="link" data-i18n="exp.show">Show in folder</button></div>
+        </div>
+        <div id="char-grid" class="char-grid"></div>
+        <p class="legal project-legal" data-i18n="legal.na">Not affiliated with Nintendo.</p>
+      </section>
+
+      <section id="view-edit" class="view editor-view hidden">
+        <div class="ed-left">
+          <div class="ed-tools" id="ed-tools" role="toolbar" aria-orientation="vertical"></div>
+          <div class="ed-leftcol">
+            <div class="panel tool-opts" id="tool-opts"></div>
+            <div class="panel layers-panel">
+              <div class="panel-head">
+                <h3><span data-i18n="lay.title">Layers</span> <small id="lay-surface" class="lay-surface"></small></h3>
+                <div class="ph-actions">
+                  <button type="button" class="icon-btn" id="lay-add" data-i18n-title="lay.add"></button>
+                  <button type="button" class="icon-btn" id="lay-dup" data-i18n-title="lay.dup"></button>
+                  <button type="button" class="icon-btn" id="lay-import" data-i18n-title="lay.import"></button>
+                  <button type="button" class="icon-btn" id="lay-recolor" data-i18n-title="lay.recolor"></button>
+                  <button type="button" class="icon-btn" id="lay-del" data-i18n-title="lay.del"></button>
+                </div>
+              </div>
+              <ul id="layer-list" class="layer-list scroll" role="listbox"></ul>
+              <div class="layer-props">
+                <label class="opt"><span data-i18n="lay.opacity">Opacity</span><input type="range" id="lay-opacity" min="0" max="100" value="100" /><output id="lay-opacity-out">100%</output></label>
+                <label class="opt"><span data-i18n="lay.blend">Blend</span><select id="lay-blend"></select></label>
+              </div>
+              <div class="adjust-panel hidden" id="adjust-panel">
+                <p class="hint"><b data-i18n="adj.title">Recolor</b> · <span id="adj-scope"></span></p>
+                <label class="opt"><span data-i18n="edit.hue">Hue</span><input type="range" id="sl-hue" min="-180" max="180" step="1" value="0" /><output id="out-hue">0°</output></label>
+                <label class="opt"><span data-i18n="edit.saturation">Saturation</span><input type="range" id="sl-sat" min="-100" max="100" step="1" value="0" /><output id="out-sat">0%</output></label>
+                <label class="opt"><span data-i18n="edit.brightness">Brightness</span><input type="range" id="sl-bri" min="-100" max="100" step="1" value="0" /><output id="out-bri">0%</output></label>
+                <label class="opt check"><input type="checkbox" id="adj-colorize" /><span data-i18n="adj.colorize">Colorize</span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ed-center">
+          <div class="ed-head">
+            <nav class="crumbs" id="crumbs" data-i18n-aria="studio.crumbs" aria-label="Location">
+              <button type="button" id="crumb-project" class="crumb-link" data-i18n-title="studio.doneTip"></button><span class="crumb-sep" aria-hidden="true">›</span><b id="crumb-char"></b>
+              <span id="save-state" class="save-state" role="status"></span>
+            </nav>
+            <button type="button" id="btn-proj-save" class="head-btn" data-i18n-title="studio.save"><span data-i18n="leave.save">Save changes</span></button>
+            <button type="button" id="btn-done" class="primary next-btn" data-i18n-title="studio.doneTip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 20 1.41-1.41L7.83 13H20v-2H7.83l5.58-5.59L12 4l-8 8 8 8Z"/></svg><span data-i18n="studio.done">Done</span></button>
+          </div>
+          <div class="ed-top">
+            <div class="mode-switch" role="tablist">
+              <button type="button" role="tab" id="mode-3d" aria-selected="true" data-i18n-title="mode.paintTip"><span data-i18n="mode.paint">Paint on model</span></button>
+              <button type="button" role="tab" id="mode-2d" aria-selected="false" data-i18n-title="mode.advancedTip"><span data-i18n="mode.advanced">Advanced (texture)</span></button>
+            </div>
+            <button type="button" id="tex-switch" class="tex-switch only-2d" aria-haspopup="listbox" data-i18n-title="top.texture">
+              <span class="thumb checker" id="tex-switch-thumb"></span>
+              <span class="ts-text"><b id="tex-switch-name"></b><small id="tex-switch-meta"></small></span>
+            </button>
+            <div class="tb-group only-2d">
+              <button type="button" class="icon-btn" id="btn-zoom-out" data-i18n-title="top.zoomOut"></button>
+              <span class="zoom-label" id="zoom-label">1×</span>
+              <button type="button" class="icon-btn" id="btn-zoom-in" data-i18n-title="top.zoomIn"></button>
+              <button type="button" class="icon-btn" id="btn-fit" data-i18n-title="top.fit"></button>
+            </div>
+            <div class="tb-group only-2d">
+              <button type="button" class="icon-btn toggle" id="btn-grid" data-i18n-title="top.grid"></button>
+              <button type="button" class="icon-btn toggle" id="btn-outlines" data-i18n-title="top.outlines"></button>
+            </div>
+            <div class="tb-group">
+              <button type="button" class="icon-btn" id="btn-undo" data-i18n-title="top.undo" disabled></button>
+              <button type="button" class="icon-btn" id="btn-redo" data-i18n-title="top.redo" disabled></button>
+            </div>
+            <span class="tb-spacer"></span>
+            <div class="tb-group">
+              <button type="button" class="icon-btn" id="btn-export-png" data-i18n-title="edit.exportOriginal"></button>
+              <button type="button" class="icon-btn" id="btn-help" data-i18n-title="top.help"></button>
+            </div>
+          </div>
+          <div class="ed-outfit hidden" id="ed-outfit">
+            <div class="seg-group" id="vehicle-group">
+              <span class="seg-label" id="veh-label" data-i18n="outfit.vehicle">Vehicle</span>
+              <div class="seg" role="radiogroup" aria-labelledby="veh-label" data-i18n-title="outfit.vehicleTip">
+                <button type="button" role="radio" id="veh-kart" aria-checked="true"><span data-i18n="outfit.kart">Kart</span><i class="seg-dot hidden" data-i18n-title="outfit.edited"></i></button>
+                <button type="button" role="radio" id="veh-bike" aria-checked="false"><span data-i18n="outfit.bike">Bike</span><i class="seg-dot hidden" data-i18n-title="outfit.edited"></i></button>
+              </div>
+            </div>
+            <div class="seg-group" id="detail-group">
+              <span class="seg-label" id="det-label" data-i18n="outfit.detail">Detail</span>
+              <div class="seg" role="radiogroup" aria-labelledby="det-label" data-i18n-title="outfit.detailTip">
+                <button type="button" role="radio" id="det-full" aria-checked="true"><span data-i18n="outfit.full">Full detail</span><i class="seg-dot hidden" data-i18n-title="outfit.edited"></i></button>
+                <button type="button" role="radio" id="det-low" aria-checked="false"><span data-i18n="outfit.low">Low detail</span><i class="seg-dot hidden" data-i18n-title="outfit.edited"></i></button>
+              </div>
+            </div>
+            <p class="outfit-shared hidden" id="outfit-shared" data-i18n="outfit.shared">Face and hair are shared: edits appear on both Kart and Bike.</p>
+          </div>
+          <div class="ed-stage" id="ed-stage">
+            <canvas id="ed-canvas"></canvas>
+            <div class="ed-banners">
+              <div id="recover-banner" class="banner hidden" role="status"><span id="recover-text"></span><button type="button" class="mini primary" id="btn-recover" data-i18n="proj.restore">Restore</button><button type="button" class="mini" id="btn-recover-discard" data-i18n="proj.discard">Discard</button></div>
+              <div id="low-hint" class="banner low-hint hidden" role="status"><span data-i18n="outfit.lowHint">Low detail is what other players see from far away. It's generated from your Full detail painting; paint here to fix details.</span></div>
+              <div id="mirror-hint" class="banner hidden" role="status"><span data-i18n="mirror.hint">Mirrored part: both sides change.</span></div>
+              <div id="eye-warn" class="banner warn hidden"><span data-i18n="edit.eyeWarn"></span><button type="button" class="mini" id="btn-eyes-all"><span data-i18n="eye.applyAll">Apply to all eye frames</span></button></div>
+            </div>
+          </div>
+          <div class="ed-status">
+            <b id="edit-char"></b><span id="edit-count"></span><span id="st-size"></span><span id="st-pos"></span><span id="st-pixel"></span><span id="st-part"></span><span id="st-warn" class="st-warn"></span><span class="legal ed-legal" data-i18n="legal.na">Not affiliated with Nintendo.</span>
+          </div>
+        </div>
+
+        <div class="ed-right">
+          <div class="panel p3d">
+            <div class="p3d-stage"><canvas id="p3d-canvas"></canvas><div id="p3d-msg" class="p3d-msg hidden"></div></div>
+            <div class="p3d-bar">
+              <button type="button" class="icon-btn toggle" id="btn-p3d-rotate" data-i18n-title="p3d.rotate"></button>
+              <button type="button" class="icon-btn p3d-reset" id="btn-p3d-reset" data-i18n-title="p3d.reset"><span class="only-3d" data-i18n="p3d.reset">Reset view</span></button>
+              <button type="button" class="icon-btn toggle" id="btn-p3d-pixels" data-i18n-title="p3d.pixels"></button>
+              <span class="p3d-help only-3d" data-i18n="p3d.help">Left: paint · Right / middle or Alt+drag: orbit · Wheel: zoom</span>
+              <span class="p3d-label only-2d" id="p3d-label"></span>
+            </div>
+          </div>
+          <div class="panel eye-panel hidden" id="eye-panel">
+            <div class="panel-head"><h3 data-i18n="eye.title">Eyes</h3><label class="opt check eye-blink"><input type="checkbox" id="eye-blink" /><span data-i18n="eye.blink">Preview expressions</span></label></div>
+            <label class="opt eye-frame"><span data-i18n="eye.frame">Eye frame</span><select id="eye-frame"></select></label>
+            <p class="hint" id="eye-hint"></p>
+          </div>
+          <div class="panel parts-panel">
+            <div class="panel-head"><h3><button type="button" id="parts-toggle" class="collapse-btn" aria-expanded="true" aria-controls="parts-list"><span data-i18n="parts.title">Body parts</span></button></h3><button type="button" class="link mini" id="parts-clear" data-i18n="parts.clear" disabled>Clear selection</button></div>
+            <ul id="parts-list" class="parts-list scroll" role="listbox"></ul>
+          </div>
+          <div class="panel color-panel">
+            <div id="color-picker" class="cp"></div>
+            <button type="button" class="mini" id="btn-replace-color"><span data-i18n="cp.replace">Replace colour…</span></button>
+          </div>
+        </div>
+
+        <div id="tex-pop" class="popover tex-pop hidden"></div>
+        <div id="help-pop" class="popover help-pop hidden">
+          <h3 data-i18n="help.title">Keyboard shortcuts</h3>
+          <dl>
+            <dt>B · E · G · I</dt><dd data-i18n="help.tools1"></dd>
+            <dt>L · U · M · W · V</dt><dd data-i18n="help.tools2"></dd>
+            <dt>[ · ] · X</dt><dd data-i18n="help.size"></dd>
+            <dt>Alt + click</dt><dd data-i18n="help.alt"></dd>
+            <dt data-keys>Ctrl+Z · Ctrl+Shift+Z · Ctrl+Y</dt><dd data-i18n="help.undo"></dd>
+            <dt data-keys>Ctrl+A · Ctrl+D · Del</dt><dd data-i18n="help.sel"></dd>
+            <dt data-keys>Wheel · Ctrl+wheel · Ctrl+0</dt><dd data-i18n="help.zoom"></dd>
+            <dt>Space / middle drag</dt><dd data-i18n="help.pan"></dd>
+            <dt>H · Space</dt><dd data-i18n="help.hand"></dd>
+            <dt data-keys>Ctrl+S</dt><dd data-i18n="help.file"></dd>
+            <dt>3D</dt><dd data-i18n="help.paint3d"></dd>
+          </dl>
+        </div>
+        <div id="replace-pop" class="popover replace-pop hidden">
+          <h3 data-i18n="rc.title">Replace colour</h3>
+          <div class="rc-row"><span data-i18n="rc.from">From</span><i class="rc-sw checker" id="rc-from"></i><button type="button" class="icon-btn" id="rc-pick" data-i18n-title="rc.pick"></button></div>
+          <div class="rc-row"><span data-i18n="rc.to">To</span><i class="rc-sw" id="rc-to"></i><small data-i18n="rc.toHint"></small></div>
+          <label class="opt"><span data-i18n="rc.tolerance">Tolerance</span><input type="range" id="rc-tol" min="0" max="160" value="40" /><output id="rc-tol-out">40</output></label>
+          <div class="opt-row"><button type="button" class="mini primary" id="rc-apply" data-i18n="rc.apply">Replace</button><button type="button" class="mini" id="rc-cancel" data-i18n="rc.cancel">Cancel</button></div>
+        </div>
+      </section>
+
+    </main>
+
+    <div id="toast" class="toast hidden" role="alert"></div>
+    <div id="busy" class="busy hidden" role="status" aria-live="polite"><div class="busy-card"><div class="spinner"></div><p id="busy-text" data-i18n="busy.wait">Working…</p></div></div>
+  </body>
+</html>

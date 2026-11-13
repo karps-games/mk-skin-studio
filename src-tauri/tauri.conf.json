@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MK Skin Studio",
+  "mainBinaryName": "MK Skin Studio",
+  "version": "1.0.0",
+  "identifier": "com.karps.mkss",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "MK Skin Studio",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 1280,
+        "minHeight": 720,
+        "center": true,
+        "decorations": false,
+        "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "Karps Games",
+    "shortDescription": "Skin studio for Mario Kart Wii",
+    "copyright": "Karps Games",
+    "category": "Utility",
+    "fileAssociations": [
+      {
+        "ext": ["mkss"],
+        "name": "MKSS project",
+        "description": "MK Skin Studio project",
+        "role": "Editor",
+        "mimeType": "application/x-mkss-project"
+      }
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    },
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/mime/packages/mk-skin-studio.xml": "linux/mkss-mime.xml"
+        }
+      }
+    }
+  }
+}

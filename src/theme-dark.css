@@ -1,0 +1,25 @@
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --bg: #0b0b0c; --panel: #111113; --panel-2: #161618; --line: #2e2e33; --line-2: #45454d;
+  --text: #f1f1ec; --muted: #b3bac4; --faint: #85858e;
+  --accent: #00d4ff; --accent-hover: #5ce3ff; --accent-ink: #000; --accent-text: #00d4ff; --accent-soft: #062a33;
+  --warn-bg: #2b2205; --warn-line: #6b5513; --warn-text: #f3d98b;
+  --danger: #ff8a80; --ok: #6ee7a0;
+  --checker-a: #2a2a2e; --checker-b: #1c1c1f;
+  --dropdown-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23f1f1ec'/%3E%3C/svg%3E");
+}
+:root[data-theme=dark] .sidebar { background: var(--panel); border-right-color: #333338; }
+:root[data-theme=dark] .brand-text span { color: var(--faint); }
+:root[data-theme=dark] .side-foot { border-top-color: #333338; }
+:root[data-theme=dark] .side-foot .ver { border-color: #333338; }
+:root[data-theme=dark] .side-foot .foot-btn:where(#btn-discord) { color: #9aa2ff; }
+:root[data-theme=dark] .side-foot .foot-btn:hover:not(:disabled), :root[data-theme=dark] .side-foot .foot-btn:focus-visible { color: var(--accent); background: transparent; }
+:root[data-theme=dark] .settings-dialog { background: var(--panel-2); }
+:root[data-theme=dark] button:hover:not(:disabled) { border-color: #5c5c66; }
+:root[data-theme=dark] button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+:root[data-theme=dark] .app-tabs button[aria-current=true] .tab-ic { color: var(--accent); }
+:root[data-theme=dark] .save-state.unsaved { color: #f3d98b; }
+:root[data-theme=dark] .lang-menu { box-shadow: 0 8px 24px #000a; }
+:root[data-theme=dark] .flag { border-color: #fff3; }
+:root[data-theme=dark] .busy { background: rgb(0 0 0 / .6); }
+:root[data-theme=dark] .brand .logo { box-shadow: 0 3px 12px rgb(0 0 0 / .6); }

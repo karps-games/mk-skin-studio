@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    name: Draft release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            sed "s/VERSION/$VERSION/g" .github/release-notes.md > notes.md
+            gh release create "v$VERSION" --draft --target "$GITHUB_SHA" --title "MK Skin Studio v$VERSION" --notes-file notes.md
+          fi
+
+  build:
+    needs: draft
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows (NSIS)
+            platform: windows-latest
+            rust_targets: ""
+            args: "--bundles nsis"
+            os_label: Windows
+          - name: macOS (universal, unsigned)
+            platform: macos-latest
+            rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            args: "--target universal-apple-darwin --bundles dmg"
+            os_label: macOS
+          - name: Linux (AppImage + deb)
+            platform: ubuntu-22.04
+            rust_targets: ""
+            args: "--bundles appimage,deb"
+            os_label: Linux
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config clang
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: release-${{ matrix.platform }}
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run tauri build -- ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+
+      - name: Upload to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.draft.outputs.version }}
+        run: |
+          mkdir -p out
+          n="MKSkinStudio-$VERSION"
+          case "${{ matrix.os_label }}" in
+            Windows) cp src-tauri/target/release/bundle/nsis/*-setup.exe "out/$n-Windows-x64-setup.exe" ;;
+            macOS) cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/$n-macOS-universal.dmg" ;;
+            Linux)
+              cp src-tauri/target/release/bundle/appimage/*.AppImage "out/$n-Linux-x86_64.AppImage"
+              cp src-tauri/target/release/bundle/deb/*.deb "out/$n-Linux-amd64.deb" ;;
+          esac
+          ls -l out
+          gh release upload "v$VERSION" out/* --clobber

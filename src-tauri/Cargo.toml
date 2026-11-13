@@ -1,0 +1,46 @@
+[package]
+name = "mk-skin-studio"
+version = "1.0.0"
+description = "Skin studio for Mario Kart Wii characters. Not affiliated with Nintendo."
+authors = ["Karps Games"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/karps-games/mk-skin-studio"
+edition = "2021"
+
+[lib]
+name = "mkss_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+szs = "0.3"
+gctex = "0.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+sha2 = "0.10.9"
+base64 = "0.22"
+nod = "1.4.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test]
+opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

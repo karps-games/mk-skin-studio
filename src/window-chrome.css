@@ -1,0 +1,35 @@
+body.window-chrome-mounted { box-sizing: border-box; padding-top: 32px; }
+.app-titlebar { position: fixed; inset: 0 0 auto; z-index: 900; height: 32px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding-left: 12px; border-bottom: 1px solid var(--line, #d2dde4); background: var(--bg, #eef3f6); color: var(--text, #243b4c); user-select: none; -webkit-user-select: none; cursor: default; font: 12px/1.2 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Ubuntu, Cantarell, 'Noto Sans', sans-serif; }
+.app-titlebar-identity { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; pointer-events: none; }
+.app-titlebar-identity img { flex: none; object-fit: contain; -webkit-user-drag: none; border-radius: 3px; }
+.app-titlebar-version { opacity: .75; }
+.window-controls { display: flex; align-self: stretch; flex: none; margin-left: auto; }
+.app-titlebar .window-control { appearance: none; display: grid; place-items: center; flex: none; width: 44px; min-width: 44px; height: 32px; min-height: 32px; box-sizing: border-box; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; box-shadow: none; cursor: default; }
+.app-titlebar .window-control:hover:not(:disabled) { background: rgba(110, 130, 145, .15); }
+.app-titlebar .window-control-close:hover:not(:disabled) { background: #c42b1c; color: #fff; }
+.app-titlebar .window-control:focus-visible { outline: 2px solid #00bfe8; outline-offset: -4px; }
+.window-glyph { display: block; position: relative; width: 10px; height: 10px; pointer-events: none; }
+.window-glyph-minimize::after { content: ''; position: absolute; left: 0; right: 0; top: 5px; border-top: 1px solid currentColor; }
+.window-glyph-maximize::after { content: ''; position: absolute; inset: 0; border: 1px solid currentColor; }
+.window-glyph-restore::before { content: ''; position: absolute; left: 2px; top: 0; width: 8px; height: 8px; box-sizing: border-box; border: 1px solid currentColor; border-left: 0; border-bottom: 0; }
+.window-glyph-restore::after { content: ''; position: absolute; left: 0; top: 2px; width: 8px; height: 8px; box-sizing: border-box; border: 1px solid currentColor; }
+.window-glyph-close::before, .window-glyph-close::after { content: ''; position: absolute; top: 5px; left: -1px; width: 13px; border-top: 1px solid currentColor; transform: rotate(45deg); }
+.window-glyph-close::after { transform: rotate(-45deg); }
+.window-chrome-status { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ae3028; font-size: 12px; }
+:root[data-theme=dark] .window-chrome-status { color: #ffb4aa; }
+:root[data-theme=dark] .app-titlebar .window-control { background: transparent; color: var(--text, #eee); border: 0; }
+:root[data-theme=dark] .app-titlebar .window-control:hover:not(:disabled) { background: #24262a; }
+:root[data-theme=dark] .app-titlebar .window-control-close:hover:not(:disabled) { background: #c42b1c; color: #fff; }
+.app-titlebar.app-titlebar-mac { padding-left: 78px; }
+.app-titlebar-mac .window-controls[hidden] { display: none; }
+.window-resize-edge { position: fixed; z-index: 1000; background: transparent; }
+.window-resize-n { top: 0; left: 12px; right: 12px; height: 4px; cursor: n-resize; }
+.window-resize-s { bottom: 0; left: 12px; right: 12px; height: 6px; cursor: s-resize; }
+.window-resize-e { right: 0; top: 12px; bottom: 12px; width: 6px; cursor: e-resize; }
+.window-resize-w { left: 0; top: 12px; bottom: 12px; width: 6px; cursor: w-resize; }
+.window-resize-ne { top: 0; right: 0; width: 12px; height: 12px; cursor: ne-resize; }
+.window-resize-nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nw-resize; }
+.window-resize-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: se-resize; }
+.window-resize-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: sw-resize; }
+body.window-maximized .window-resize-edges { display: none; }
+body.window-chrome-mounted .p3d-stage { height: clamp(160px, calc(100vh - 502px), 250px); }
