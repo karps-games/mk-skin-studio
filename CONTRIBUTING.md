@@ -66,8 +66,32 @@ Never commit game files or anything extracted from a game: disc images, `.szs`, 
 
 ## Pull requests
 
-- One topic per pull request, with a short description of what changed and why.
-- Include tests for bug fixes and new behavior when it is practical.
-- Make sure the tests above pass.
+1. Fork the repository and create a branch from `main`:
+   - `feat/short-name` for new features
+   - `fix/short-name` for bug fixes
+   - `docs/short-name` for documentation
+   - `chore/short-name` for CI, dependencies and cleanup
+2. Keep one topic per pull request.
+3. Include tests for bug fixes and new behavior when it is practical.
+4. Make sure the tests above pass. CI runs them again on every pull request.
+
+Pull requests are squash merged: all the commits in your branch become a single commit on `main`, named after the pull request title. Start the title with the type of change, followed by a short description in the imperative:
+
+| Type | Use it for | Example |
+|---|---|---|
+| `feat:` | A new feature | `feat: show the app logo in the Windows installer` |
+| `fix:` | A bug fix | `fix: fill the whole window on Linux` |
+| `docs:` | README, CONTRIBUTING or other docs | `docs: add contribution workflow` |
+| `chore:` | CI, dependencies or cleanup | `chore: update GitHub Actions` |
+
+Fill in every section of the pull request template:
+
+- **Purpose:** why the change is needed. What did people ask for, or what bug does it fix?
+- **How to test:** clear steps to check the change.
+- **What changed:** a short summary, not line by line.
+- **Related issue:** required for bug fixes.
+- **Checklist:** tick each item before asking for a review.
+
+Releases are prepared by the maintainer.
 
 By contributing, you agree that your work is licensed under the GPL-3.0-or-later, like the rest of the project.
