@@ -4,6 +4,7 @@ pub mod discovery;
 pub mod export;
 pub mod game;
 pub mod mdl0;
+pub mod mdl0_layout;
 pub mod model;
 pub mod parts;
 pub mod portraits;
