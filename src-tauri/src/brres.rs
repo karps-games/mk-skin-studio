@@ -455,7 +455,7 @@ mod archive_tests {
         w(&mut b, t + 0x20, 1);
         w(&mut b, t + 0x24, 1);
         for (i, v) in b[t + 0x40..t + 0x60].iter_mut().enumerate() {
-            *v = i as u8 * 9;
+            *v = (i * 9) as u8;
         }
         b.truncate(0x120);
         let len = b.len() as i64;
