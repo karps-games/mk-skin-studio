@@ -148,6 +148,10 @@ impl NameRef {
     pub fn new(at: usize, base: usize, text: &str) -> Self {
         NameRef { at, base, text: text.to_string(), origin: None }
     }
+
+    pub fn moved(&self, at: usize, base: usize) -> Self {
+        NameRef { at, base, ..self.clone() }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -170,7 +174,7 @@ pub struct Archive {
     pub members: Vec<Member>,
 }
 
-fn entries(b: &[u8], group: usize) -> Result<Vec<(usize, String, usize)>, String> {
+pub(crate) fn entries(b: &[u8], group: usize) -> Result<Vec<(usize, String, usize)>, String> {
     let size = be32(b, group)? as usize;
     let count = be32(b, group + 4)? as usize;
     if count > 4096 || 8 + (count + 1) * 16 > size || group + size > b.len() {
@@ -242,6 +246,7 @@ fn member_names(b: &[u8], at: usize) -> Result<Vec<NameRef>, String> {
         (b"TEX0", 3) => n.add(at + 0x14, at, false)?,
         (b"MDL0", 11) => {
             n.add(at + 0x48, at, false)?;
+            n.add(at + 0x64, at + 0x4C, true)?;
             for i in 0..14 {
                 for d in n.group(at + 0x10 + i * 4)? {
                     match i {
@@ -286,6 +291,63 @@ fn member_names(b: &[u8], at: usize) -> Result<Vec<NameRef>, String> {
         _ => return Err("E:file.format".into()),
     }
     Ok(n.out)
+}
+
+fn id_bit(name: &[u8], id: u16) -> bool {
+    let c = (id >> 3) as usize;
+    c < name.len() && (name[c] >> (id & 7)) & 1 == 1
+}
+
+fn top_bit(v: u8) -> u16 {
+    7 - v.leading_zeros() as u16
+}
+
+fn node_id(other: &[u8], name: &[u8]) -> u16 {
+    if other.len() < name.len() {
+        return ((name.len() as u16 - 1) << 3) | top_bit(name[name.len() - 1]);
+    }
+    for i in (0..name.len()).rev() {
+        let d = other[i] ^ name[i];
+        if d != 0 {
+            return ((i as u16) << 3) | top_bit(d);
+        }
+    }
+    0xFFFF
+}
+
+pub fn dictionary(names: &[&[u8]]) -> Vec<[u16; 3]> {
+    let mut all: Vec<&[u8]> = vec![b""];
+    all.extend_from_slice(names);
+    let mut n: Vec<[u16; 3]> = vec![[0xFFFF, 0, 0]];
+    for idx in 1..all.len() {
+        let name = all[idx];
+        let mut id = node_id(b"", name);
+        let (mut left, mut right) = (idx as u16, idx as u16);
+        let mut prev = 0usize;
+        let mut cur = n[0][1] as usize;
+        let mut is_right = false;
+        while id <= n[cur][0] && n[cur][0] < n[prev][0] {
+            if id == n[cur][0] {
+                id = node_id(all[cur], name);
+                if id_bit(all[cur], id) {
+                    (left, right) = (idx as u16, cur as u16);
+                } else {
+                    (left, right) = (cur as u16, idx as u16);
+                }
+            }
+            prev = cur;
+            is_right = id_bit(name, n[cur][0]);
+            cur = n[cur][if is_right { 2 } else { 1 }] as usize;
+        }
+        if all[cur].len() == name.len() && id_bit(all[cur], id) {
+            right = cur as u16;
+        } else {
+            left = cur as u16;
+        }
+        n.push([id, left, right]);
+        n[prev][if is_right { 2 } else { 1 }] = idx as u16;
+    }
+    n
 }
 
 fn put(out: &mut [u8], at: usize, v: i64) {
