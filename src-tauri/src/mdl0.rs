@@ -31,6 +31,7 @@ pub struct Submesh {
     pub normals: Vec<f32>,
     pub uvs: Vec<f32>,
     pub indices: Vec<u32>,
+    pub matrices: Vec<i32>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -39,6 +40,20 @@ pub struct Model {
     pub materials: Vec<Material>,
     pub submeshes: Vec<Submesh>,
     pub skipped_shapes: usize,
+    pub bones: Vec<BoneInfo>,
+    pub influences: Vec<Vec<(u32, f32)>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BoneInfo {
+    pub name: String,
+    pub parent: Option<usize>,
+    pub flags: u32,
+    pub scale: [f32; 3],
+    pub rotation: [f32; 3],
+    pub translation: [f32; 3],
+    pub model: [f32; 12],
+    pub inverse: [f32; 12],
 }
 
 impl Submesh {
@@ -225,15 +240,72 @@ pub fn apply_srt(srt: &[f32; 5], u: f32, v: f32) -> (f32, f32) {
 
 struct Bone {
     model: [f32; 12],
+    info: BoneInfo,
+    parent_at: Option<usize>,
 }
 
 fn bone(b: &[u8], at: usize) -> Result<(u32, Bone), String> {
     let id = be32(b, at + 0x0C)?;
-    let mut model = [0f32; 12];
-    for (i, m) in model.iter_mut().enumerate() {
-        *m = f32be(b, at + 0x70 + i * 4)?;
+    let mat = |base: usize| -> Result<[f32; 12], String> {
+        let mut m = [0f32; 12];
+        for (i, v) in m.iter_mut().enumerate() {
+            *v = f32be(b, base + i * 4)?;
+        }
+        Ok(m)
+    };
+    let vec3 = |base: usize| -> Result<[f32; 3], String> { Ok([f32be(b, base)?, f32be(b, base + 4)?, f32be(b, base + 8)?]) };
+    let model = mat(at + 0x70)?;
+    let rel = be32(b, at + 0x5C)? as i32;
+    let info = BoneInfo {
+        name: cstr(b, offset(at, be32(b, at + 8)?, b.len())?)?,
+        parent: None,
+        flags: be32(b, at + 0x14)?,
+        scale: vec3(at + 0x20)?,
+        rotation: vec3(at + 0x2C)?,
+        translation: vec3(at + 0x38)?,
+        model,
+        inverse: mat(at + 0xA0)?,
+    };
+    let parent_at = if rel == 0 { None } else { Some(offset(at, rel as u32, b.len())?) };
+    Ok((id, Bone { model, info, parent_at }))
+}
+
+fn influences(b: &[u8], at: usize, mtx_to_bone: &[i32]) -> Result<Vec<Vec<(u32, f32)>>, String> {
+    let mut out: Vec<Vec<(u32, f32)>> = mtx_to_bone.iter().map(|&x| if x >= 0 { vec![(x as u32, 1.0)] } else { Vec::new() }).collect();
+    let bone_of = |m: u16| mtx_to_bone.get(m as usize).copied().filter(|&x| x >= 0).map(|x| x as u32);
+    let mut p = at;
+    for _ in 0..100_000 {
+        match u8at(b, p)? {
+            0x00 => p += 1,
+            0x01 => return Ok(out),
+            0x02 => p += 5,
+            0x03 => {
+                let mtx = be16(b, p + 1)? as usize;
+                let n = u8at(b, p + 3)? as usize;
+                let mut list = Vec::with_capacity(n);
+                for k in 0..n {
+                    let e = p + 4 + k * 6;
+                    if let Some(bone) = bone_of(be16(b, e)?) {
+                        list.push((bone, f32be(b, e + 2)?));
+                    }
+                }
+                if mtx < out.len() {
+                    out[mtx] = list;
+                }
+                p += 4 + n * 6;
+            }
+            0x05 => {
+                let mtx = be16(b, p + 1)? as usize;
+                let node = be16(b, p + 3)? as u32;
+                if mtx < out.len() && out[mtx].is_empty() {
+                    out[mtx] = vec![(node, 1.0)];
+                }
+                p += 5;
+            }
+            _ => return Err(bad!()),
+        }
     }
-    Ok((id, Bone { model }))
+    Err(bad!())
 }
 
 fn xform(m: &[f32; 12], p: [f32; 3], w: f32) -> [f32; 3] {
@@ -473,9 +545,18 @@ pub fn parse(b: &[u8], at: usize) -> Result<Model, String> {
         }
     };
     let mut bones = std::collections::HashMap::new();
+    let mut bone_at = std::collections::HashMap::new();
     for (_, a) in list(i_bones)? {
         let (id, bn) = bone(b, a)?;
+        bone_at.insert(a, id);
         bones.insert(id, bn);
+    }
+    let mut skeleton: Vec<BoneInfo> = Vec::with_capacity(bones.len());
+    for id in 0..bones.len() as u32 {
+        let bn = bones.get(&id).ok_or_else(|| bad!())?;
+        let mut info = bn.info.clone();
+        info.parent = bn.parent_at.and_then(|a| bone_at.get(&a)).map(|&p| p as usize);
+        skeleton.push(info);
     }
     let arrays = |i: usize, kind: u8| -> Result<std::collections::HashMap<u32, Vec<f32>>, String> {
         let mut m = std::collections::HashMap::new();
@@ -499,14 +580,23 @@ pub fn parse(b: &[u8], at: usize) -> Result<Model, String> {
         shapes.insert(id, s);
     }
     let mut calls = Vec::new();
+    let mut weights: Vec<Vec<(u32, f32)>> = mtx_to_bone.iter().map(|&x| if x >= 0 { vec![(x as u32, 1.0)] } else { Vec::new() }).collect();
     for (name, a) in list(i_tree)? {
         match name.as_str() {
             "DrawOpa" => draws(b, a, false, &mut calls)?,
             "DrawXlu" => draws(b, a, true, &mut calls)?,
+            "NodeTree" | "NodeMix" => {
+                let found = influences(b, a, &mtx_to_bone)?;
+                for (w, f) in weights.iter_mut().zip(found) {
+                    if w.is_empty() {
+                        *w = f;
+                    }
+                }
+            }
             _ => {}
         }
     }
-    let mut model = Model { name, materials: materials.values().cloned().collect(), ..Default::default() };
+    let mut model = Model { name, materials: materials.values().cloned().collect(), bones: skeleton, influences: weights, ..Default::default() };
     let drawn: std::collections::HashSet<u32> = calls.iter().map(|c| c.1).collect();
     model.skipped_shapes = shapes.keys().filter(|k| !drawn.contains(k)).count();
     for (mat_id, shape_id, xlu) in calls {
@@ -559,6 +649,7 @@ pub fn parse(b: &[u8], at: usize) -> Result<Model, String> {
                     };
                     let (u, w) = srt.map_or((u, w), |s| apply_srt(&s, u, w));
                     sm.uvs.extend_from_slice(&[u, w]);
+                    sm.matrices.push(v.mtx);
                 }
                 sm.indices.push(id);
             }

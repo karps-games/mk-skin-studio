@@ -40,6 +40,15 @@ pub struct SubView {
     pub uvs: String,
     pub indices: String,
     pub parts: String,
+    pub matrices: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimView {
+    pub name: String,
+    pub frames: u16,
+    pub looping: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -53,6 +62,9 @@ pub struct MeshView {
     pub bbox_min: [f32; 3],
     pub bbox_max: [f32; 3],
     pub submeshes: Vec<SubView>,
+    pub bones: usize,
+    pub influences: Vec<Vec<(u32, f32)>>,
+    pub anims: Vec<AnimView>,
 }
 
 pub fn vehicle_of(kind: &str, file: &str) -> Option<&'static str> {
@@ -155,11 +167,13 @@ pub fn load_sources(root: &Path, ch: &game::Character) -> Result<Vec<ModelSource
     let mut out = Vec::new();
     let mut covered: HashSet<String> = HashSet::new();
     let mut take = |kind: &'static str, rel: &str, b: &[u8], out: &mut Vec<ModelSource>| -> Result<(), String> {
+        let anims = crate::chr0::parse_all(b).unwrap_or_default();
         for model in mdl0::parse_all(b).map_err(|e| if e.contains("|file=") { e } else { format!("{e}|file={rel}") })? {
             let texs = textures_of(&model);
             if texs.iter().any(|t| !covered.contains(t)) {
                 covered.extend(texs);
-                out.push(ModelSource { kind, file: rel.to_string(), model });
+                let own = anims.iter().filter(|a| a.nodes.iter().any(|n| model.bones.iter().any(|b| b.name == n.name))).cloned().collect();
+                out.push(ModelSource { kind, file: rel.to_string(), model, anims: own });
             }
         }
         Ok(())
@@ -217,6 +231,18 @@ pub fn eye_groups(map: &texmap::CharMap) -> Vec<EyeView> {
     out
 }
 
+pub fn bake(src: &ModelSource, anim: &str) -> Option<String> {
+    let a = src.anims.iter().find(|a| a.name == anim)?;
+    let bones = &src.model.bones;
+    let mut out = Vec::with_capacity((a.frames as usize + 1) * bones.len() * 12);
+    for f in 0..=a.frames {
+        for m in crate::chr0::skinning(bones, &a.pose(bones, f as f32)) {
+            out.extend_from_slice(&m);
+        }
+    }
+    Some(f32s(&out))
+}
+
 pub fn bundle(code: &str, sources: &[ModelSource], textures: &[(String, u32, u32)]) -> ModelBundle {
     bundle_with(code, sources, textures, None)
 }
@@ -265,9 +291,13 @@ pub fn bundle_with(code: &str, sources: &[ModelSource], textures: &[(String, u32
                             uvs: f32s(&s.uvs),
                             indices: u32s(&s.indices),
                             parts: u16s(&computed.tri_parts[mi][si]),
+                            matrices: i32s(&s.matrices),
                         }
                     })
                     .collect(),
+                bones: m.bones.len(),
+                influences: m.influences.clone(),
+                anims: src.anims.iter().map(|a| AnimView { name: a.name.clone(), frames: a.frames, looping: a.looping }).collect(),
             }
         })
         .collect();

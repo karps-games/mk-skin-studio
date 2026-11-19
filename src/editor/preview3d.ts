@@ -16,6 +16,12 @@ export interface SubData {
   uvs: string;
   indices: string;
   parts: string;
+  matrices?: string;
+}
+export interface AnimInfo {
+  name: string;
+  frames: number;
+  looping: boolean;
 }
 export interface ModelData {
   kind: string;
@@ -26,6 +32,9 @@ export interface ModelData {
   bboxMin: [number, number, number];
   bboxMax: [number, number, number];
   submeshes: SubData[];
+  bones?: number;
+  influences?: [number, number][][];
+  anims?: AnimInfo[];
 }
 export interface PartData {
   key: string;
@@ -167,6 +176,8 @@ export class Preview3D {
   onPick: (r: PickResult | null) => void = () => {};
   onHover: (r: PickResult | null) => void = () => {};
   uploads = 0;
+  posed = false;
+  private rest = new WeakMap<SubData, { pos: Float32Array; nrm: Float32Array | null; mtx: Int32Array | null }>();
 
   constructor(private canvas: HTMLCanvasElement) {
     let r: THREE.WebGLRenderer | null = null;
@@ -521,6 +532,7 @@ export class Preview3D {
   show(model: ModelData) {
     if (this.model === model) return;
     this.model = model;
+    this.posed = false;
     for (const s of this.subs) {
       s.mesh.geometry.dispose();
       (s.mesh.material as THREE.Material).dispose();
@@ -549,6 +561,71 @@ export class Preview3D {
     this.camera.near = this.radius / 100;
     this.camera.far = this.radius * 100;
     this.resetView();
+  }
+
+  private restOf(d: SubData) {
+    let r = this.rest.get(d);
+    if (!r) {
+      r = { pos: f32(d.positions), nrm: d.normals ? f32(d.normals) : null, mtx: d.matrices ? i32arr(d.matrices) : null };
+      this.rest.set(d, r);
+    }
+    return r;
+  }
+
+  pose(model: ModelData | null, mats: Float32Array | null) {
+    const own = model && mats ? new Set(model.submeshes) : null;
+    const inf = model?.influences ?? [];
+    for (const s of this.subs) {
+      const r = this.restOf(s.data);
+      if (!own || !mats || !own.has(s.data) || !r.mtx) {
+        if (this.posed) {
+          s.pos.set(r.pos);
+          if (s.nrm && r.nrm) s.nrm.set(r.nrm);
+          this.touched(s);
+        }
+        continue;
+      }
+      const mtx = r.mtx;
+      const P = r.pos, N = r.nrm;
+      for (let v = 0; v < P.length / 3; v++) {
+        const list = inf[mtx[v]];
+        const i = v * 3;
+        if (!list || !list.length) {
+          s.pos[i] = P[i], s.pos[i + 1] = P[i + 1], s.pos[i + 2] = P[i + 2];
+          continue;
+        }
+        let x = 0, y = 0, z = 0, a = 0, b = 0, c = 0;
+        for (const [bone, w] of list) {
+          const o = bone * 12;
+          x += w * (mats[o] * P[i] + mats[o + 1] * P[i + 1] + mats[o + 2] * P[i + 2] + mats[o + 3]);
+          y += w * (mats[o + 4] * P[i] + mats[o + 5] * P[i + 1] + mats[o + 6] * P[i + 2] + mats[o + 7]);
+          z += w * (mats[o + 8] * P[i] + mats[o + 9] * P[i + 1] + mats[o + 10] * P[i + 2] + mats[o + 11]);
+          if (N) {
+            a += w * (mats[o] * N[i] + mats[o + 1] * N[i + 1] + mats[o + 2] * N[i + 2]);
+            b += w * (mats[o + 4] * N[i] + mats[o + 5] * N[i + 1] + mats[o + 6] * N[i + 2]);
+            c += w * (mats[o + 8] * N[i] + mats[o + 9] * N[i + 1] + mats[o + 10] * N[i + 2]);
+          }
+        }
+        s.pos[i] = x, s.pos[i + 1] = y, s.pos[i + 2] = z;
+        if (s.nrm && N) {
+          const l = Math.hypot(a, b, c) || 1;
+          s.nrm[i] = a / l, s.nrm[i + 1] = b / l, s.nrm[i + 2] = c / l;
+        }
+      }
+      this.touched(s);
+    }
+    for (const m of [this.highlight, this.selectedHL]) if (m) m.geometry.getAttribute("position").needsUpdate = true;
+    this.posed = !!own;
+    this.request();
+  }
+
+  private touched(s: Sub) {
+    const g = s.mesh.geometry;
+    g.getAttribute("position").needsUpdate = true;
+    const n = g.getAttribute("normal");
+    if (n) n.needsUpdate = true;
+    g.computeBoundingSphere();
+    g.computeBoundingBox();
   }
 
   resetView() {
@@ -587,9 +664,19 @@ export class Preview3D {
     if (!t || !src) return;
     const img = t.image as { data: Uint8Array; width: number; height: number };
     if (img.width !== src.w || img.height !== src.h) {
-      t.image = { data: new Uint8Array(src.data), width: src.w, height: src.h } as unknown as typeof t.image;
-    } else img.data.set(src.data);
-    t.needsUpdate = true;
+      const fresh = new THREE.DataTexture(new Uint8Array(src.data), src.w, src.h, THREE.RGBAFormat);
+      for (const k of ["colorSpace", "flipY", "wrapS", "wrapT", "magFilter", "minFilter", "generateMipmaps"] as const) (fresh as unknown as Record<string, unknown>)[k] = t[k];
+      fresh.needsUpdate = true;
+      for (const s of this.subs) {
+        const m = s.mesh.material as THREE.MeshLambertMaterial;
+        if (m.map === t) (m.map = fresh), (m.needsUpdate = true);
+      }
+      this.textures.set(target, fresh);
+      t.dispose();
+    } else {
+      img.data.set(src.data);
+      t.needsUpdate = true;
+    }
     this.uploads++;
     this.request();
   }
@@ -641,7 +728,7 @@ export class Preview3D {
       for (let t = 0; t < s.parts.length; t++) if (s.parts[t] === p.part) idx.push(s.index[t * 3], s.index[t * 3 + 1], s.index[t * 3 + 2]);
       if (idx.length) {
         geo = new THREE.BufferGeometry();
-        geo.setAttribute("position", s.mesh.geometry.getAttribute("position"));
+        geo.setAttribute("position", new THREE.BufferAttribute(s.pos, 3));
         geo.setIndex(idx);
         break;
       }

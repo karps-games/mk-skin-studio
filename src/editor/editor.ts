@@ -7,7 +7,7 @@ import { BLENDS, History, activeLayer, baseEdited, composite, identityAdjust, is
 import { icon } from "./icons";
 import { applyStroke, fillMask, lineStroke, maskBBox, maskFromRuns, maskOutline, palette, rectStroke, regionMask, replaceColor, hex, Stroke, type BrushOpts, type PaintMode, type RGBA } from "./paint";
 import { decodeDataUrl, pngDataUrl } from "./png";
-import { Preview3D, i32arr, u32arr, type EyeData, type LinkData, type ModelBundle, type ModelData, type SurfaceHit, type TexParts } from "./preview3d";
+import { Preview3D, i32arr, u32arr, type AnimInfo, type EyeData, type LinkData, type ModelBundle, type ModelData, type SurfaceHit, type TexParts } from "./preview3d";
 import { SurfaceGeo, TexelOwners, partMaskOf, stampSphere, wrapTexel } from "./surface";
 
 export interface TextureView { name: string; width: number; height: number; format: string; images: number; files: number; menu: boolean; eye: boolean; preview: string; sha256: string }
@@ -161,7 +161,7 @@ export class Editor {
     };
     for (const [id, ic] of [
       ["btn-zoom-out", "minus"], ["btn-zoom-in", "plus"], ["btn-fit", "fit"], ["btn-grid", "grid"], ["btn-outlines", "parts"], ["btn-undo", "undo"], ["btn-redo", "redo"],
-      ["btn-proj-save", "save"], ["btn-help", "help"], ["btn-export-png", "image"], ["btn-p3d-rotate", "rotate"], ["btn-p3d-reset", "center"], ["btn-p3d-pixels", "pixels"],
+      ["btn-proj-save", "save"], ["btn-help", "help"], ["btn-export-png", "image"], ["btn-p3d-rotate", "rotate"], ["btn-p3d-reset", "center"], ["btn-p3d-pixels", "pixels"], ["btn-p3d-play", "play"],
       ["lay-add", "plus"], ["lay-dup", "copy"], ["lay-import", "image"], ["lay-recolor", "recolor"], ["lay-del", "trash"], ["btn-replace-color", "replace"], ["btn-eyes-all", "frames"], ["rc-pick", "picker"],
     ] as const)
       ib(id, ic);
@@ -201,6 +201,8 @@ export class Editor {
       this.preview.setNearest(!this.preview.nearest);
       this.syncToggles();
     });
+    $("p3d-anim").addEventListener("change", () => void this.setAnim(($("p3d-anim") as HTMLSelectElement).value));
+    $("btn-p3d-play").addEventListener("click", () => this.togglePlay());
     $("lay-add").addEventListener("click", () => this.addLayer());
     $("lay-dup").addEventListener("click", () => this.duplicateLayer());
     $("lay-del").addEventListener("click", () => this.deleteLayer());
@@ -323,6 +325,7 @@ export class Editor {
     this.bundle = null;
     this.modelError = null;
     this.focus = this.hover = null;
+    this.stopAnim();
     this.preview.clear();
     for (const x of ch.textures) {
       const img = await decodeDataUrl(x.preview);
@@ -399,10 +402,12 @@ export class Editor {
     if (mi === null) {
       if (!this.preview.current) {
         const first = this.bundle.models[0];
+        if (first && this.preview.current !== first) this.stopAnim();
         if (first) this.preview.show(first);
       }
       this.p3dMessage(t("p3d.noModel"), true);
     } else {
+      if (this.preview.current !== this.bundle.models[mi]) this.stopAnim();
       this.preview.show(this.bundle.models[mi]);
       this.p3dMessage(null);
     }
@@ -1404,10 +1409,12 @@ export class Editor {
       const step = () => {
         const g = this.bundle?.eyes?.[0];
         if (!this.blink || !g) return;
-        const k = i % g.frames.length;
-        this.blinkFrame = g.frames[k];
+        const base = this.docs.get(g.defaultFrame);
+        const frames = g.frames.filter((f) => { const d = this.docs.get(f); return !base || !d || (d.w === base.w && d.h === base.h); });
+        const frame = frames[i % frames.length];
+        this.blinkFrame = frame;
         this.refreshEyePreview();
-        $("eye-hint").textContent = t("eye.showing", { n: k, total: g.frames.length });
+        $("eye-hint").textContent = t("eye.showing", { n: g.frames.indexOf(frame), total: g.frames.length });
         i++;
         this.blinkTimer = window.setTimeout(step, 800);
       };
@@ -1545,12 +1552,118 @@ export class Editor {
     }
     const i = this.bundle?.models.indexOf(m) ?? -1;
     this.modelIndex = i >= 0 ? i : this.bundle?.models.indexOf(this.outfitModels(this.vehicle, this.detail)[0]) ?? 0;
+    this.stopAnim();
     this.preview.show(m);
+    this.renderAnimBar(m);
     this.p3dMessage(null);
     $("p3d-label").textContent = this.modelLabel(m);
     for (const d of this.docs.values()) if (!this.eyeGroupOf(d.name) && this.preview.hasTexture(d.name)) this.preview.update(d.name);
     this.refreshEyePreview();
   }
+  private anim: { model: ModelData; frames: number; looping: boolean; mats: Float32Array; bones: number; t0: number; frame: number; playing: boolean } | null = null;
+  private animModel: ModelData | null = null;
+  private animRaf = 0;
+  private animToken = 0;
+  private playState = "";
+  private poses = new Map<string, Float32Array>();
+
+  private renderAnimBar(view: ModelData) {
+    const main = this.bundle?.models.find((m) => m.submeshes[0] === view.submeshes[0]) ?? null;
+    const list: AnimInfo[] = main && (main.bones ?? 0) > 1 ? main.anims ?? [] : [];
+    this.animModel = list.length ? main : null;
+    const sel = $("p3d-anim") as HTMLSelectElement;
+    sel.innerHTML = [`<option value="">${esc(t("p3d.rest"))}</option>`, ...list.map((a) => `<option value="${esc(a.name)}">${esc(a.name.replace(/_/g, " "))}</option>`)].join("");
+    sel.value = "";
+    sel.setAttribute("aria-label", t("p3d.anim"));
+    sel.classList.toggle("hidden", !list.length);
+    $("btn-p3d-play").classList.toggle("hidden", !list.length);
+    this.syncPlay();
+  }
+
+  async setAnim(name: string) {
+    this.stopAnim();
+    const token = this.animToken;
+    const model = this.animModel, info = model?.anims?.find((a) => a.name === name);
+    if (!model || !info || !this.bundle) return;
+    const index = this.bundle.models.indexOf(model);
+    const key = `${this.bundle.character}/${index}/${name}`;
+    let mats = this.poses.get(key);
+    if (!mats) {
+      try {
+        const raw = i32arr(await invoke<string>("model_pose", { model: index, anim: name }));
+        mats = new Float32Array(raw.buffer, raw.byteOffset, raw.length);
+      } catch (err) {
+        this.toast(errText(err));
+        return;
+      }
+      this.poses.set(key, mats);
+    }
+    if (token !== this.animToken || ($("p3d-anim") as HTMLSelectElement).value !== name || this.animModel !== model) return;
+    this.anim = { model, frames: info.frames, looping: true, mats, bones: model.bones ?? 0, t0: performance.now(), frame: 0, playing: true };
+    this.loop();
+  }
+
+  private loop() {
+    cancelAnimationFrame(this.animRaf);
+    this.animRaf = 0;
+    this.tickAnim();
+  }
+
+  private tickAnim = () => {
+    const a = this.anim;
+    this.animRaf = 0;
+    if (!a) return;
+    if (a.playing) {
+      let f = ((performance.now() - a.t0) / 1000) * 60;
+      if (a.looping) f %= a.frames + 1;
+      else if (f >= a.frames) (f = a.frames), (a.playing = false);
+      a.frame = f;
+    }
+    const per = a.bones * 12, i = Math.min(a.frames, Math.max(0, Math.floor(a.frame)));
+    this.preview.pose(a.model, a.mats.subarray(i * per, (i + 1) * per));
+    this.syncPlay();
+    if (a.playing && !this.animRaf) this.animRaf = requestAnimationFrame(this.tickAnim);
+  };
+
+  togglePlay() {
+    const a = this.anim;
+    if (!a) {
+      const sel = $("p3d-anim") as HTMLSelectElement;
+      if (sel.options.length > 1) {
+        sel.value = sel.options[1].value;
+        void this.setAnim(sel.value);
+      }
+      return;
+    }
+    if (a.playing) a.playing = false;
+    else {
+      if (!a.looping && a.frame >= a.frames) a.frame = 0;
+      a.t0 = performance.now() - (a.frame / 60) * 1000;
+      a.playing = true;
+    }
+    this.loop();
+  }
+
+  stopAnim() {
+    this.animToken++;
+    cancelAnimationFrame(this.animRaf);
+    this.animRaf = 0;
+    this.anim = null;
+    if (this.preview.posed) this.preview.pose(null, null);
+    this.syncPlay();
+  }
+
+  private syncPlay() {
+    const playing = !!this.anim?.playing;
+    const state = playing ? "pause" : "play";
+    if (state === this.playState) return;
+    this.playState = state;
+    const b = $("btn-p3d-play");
+    b.setAttribute("aria-pressed", String(playing));
+    b.querySelector("svg")?.remove();
+    b.insertAdjacentHTML("afterbegin", icon(state));
+  }
+
   showModelIndex(i: number) {
     const m = this.bundle?.models[i];
     if (!m) return;
@@ -1644,6 +1757,10 @@ export class Editor {
   }
   private down3d(e: PointerEvent) {
     if (this.mode !== "3d" || e.altKey || this.tool === "hand" || this.preview.navigating || (e.button !== 0 && e.button !== 2) || !this.bundle) return;
+    if (this.anim) {
+      if (e.button === 0) this.toast(t("p3d.poseHint"), "ok");
+      return;
+    }
     if (e.button === 2 && this.tool !== "picker") return;
     const hit = this.preview.hitAt(e.clientX, e.clientY);
     if (!hit) return;
