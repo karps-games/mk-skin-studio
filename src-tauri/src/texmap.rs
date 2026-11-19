@@ -822,7 +822,7 @@ pub fn analyze_with(root: &Path, ch: &game::Character, sizes: &[(String, u32, u3
             let Some(smp) = sm.texture(&s.model) else { continue };
             let Some((_, w, h)) = sizes.iter().find(|(n, _, _)| *n == smp.texture) else { continue };
             let mut mask = vec![0u8; (*w * *h) as usize];
-            let one = Model { name: s.model.name.clone(), materials: s.model.materials.clone(), submeshes: vec![sm.clone()], skipped_shapes: 0 };
+            let one = Model { name: s.model.name.clone(), materials: s.model.materials.clone(), submeshes: vec![sm.clone()], ..Default::default() };
             rasterize(&one, &smp.texture, *w, *h, &mut mask);
             uses.push(TexUse {
                 texture: smp.texture.clone(),
@@ -983,7 +983,7 @@ mod tests {
         for (uv, x, y) in quads {
             quad(&mut sm, *uv, *x, *y, 0.0);
         }
-        Model { name: "model".into(), materials: vec![Material { name: format!("{tex}_m"), samplers: vec![Sampler { texture: tex.into(), wrap_s: 1, wrap_t: 1, uv_set: Some(0), srt: None }] }], submeshes: vec![sm], skipped_shapes: 0 }
+        Model { name: "model".into(), materials: vec![Material { name: format!("{tex}_m"), samplers: vec![Sampler { texture: tex.into(), wrap_s: 1, wrap_t: 1, uv_set: Some(0), srt: None }] }], submeshes: vec![sm], ..Default::default() }
     }
 
     #[test]

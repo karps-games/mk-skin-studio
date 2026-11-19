@@ -5,6 +5,7 @@ pub struct ModelSource {
     pub kind: &'static str,
     pub file: String,
     pub model: Model,
+    pub anims: Vec<crate::chr0::Anim>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -509,13 +510,13 @@ mod tests {
             name: "t".into(),
             materials: vec![Material { name: "body_all_tx".into(), samplers: vec![Sampler { texture: "body".into(), wrap_s: 1, wrap_t: 1, uv_set: Some(0), srt: None }] }],
             submeshes: vec![sm],
-            skipped_shapes: 0,
+            ..Default::default()
         }
     }
 
     #[test]
     fn islands_masks_labels_and_tri_parts() {
-        let src = vec![ModelSource { kind: "race", file: "x".into(), model: model() }];
+        let src = vec![ModelSource { kind: "race", file: "x".into(), model: model(), anims: Vec::new() }];
         let c = compute(&src, &[("body".into(), 64, 64), ("body_eye.3".into(), 8, 8), ("other".into(), 8, 8)]);
         let t = &c.textures[0];
         assert_eq!(t.parts.len(), 2, "{:?}", t.parts);
@@ -549,7 +550,7 @@ mod tests {
         let mut sm = Submesh { material: "body_all_tx".into(), shape: "p1".into(), sampler: Some(0), ..Default::default() };
         quad(&mut sm, [1.5, 0.0, 2.0, 0.5], 0.0, 9.0);
         m.submeshes = vec![sm];
-        let c = compute(&[ModelSource { kind: "race", file: "x".into(), model: m }], &[("body".into(), 64, 64)]);
+        let c = compute(&[ModelSource { kind: "race", file: "x".into(), model: m, anims: Vec::new() }], &[("body".into(), 64, 64)]);
         let p = &c.textures[0].parts[0];
         assert_eq!(p.bbox[0], 0);
         assert!(p.bbox[2] <= 33);

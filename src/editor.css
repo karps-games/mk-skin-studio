@@ -191,6 +191,11 @@ button.mini .ic { width: 15px; height: 15px; }
 .ed-stage > .p3d .p3d-stage { flex: 1; height: auto; min-height: 0; }
 .ed-stage > .p3d .p3d-bar { background: var(--panel); }
 .editor-view[data-mode="3d"] #p3d-canvas { cursor: crosshair; }
+#btn-p3d-play svg { pointer-events: none; }
+.p3d-anim { flex: 0 1 auto; min-width: 0; max-width: 132px; height: 28px; min-height: 28px; padding: 0 26px 0 9px; margin: 0 4px 0 6px; font-size: 12px; border-color: var(--line); background-position: right 9px center; }
+.p3d-anim:hover { border-color: var(--line-2); }
+.p3d-anim:focus { outline: none; }
+.p3d-anim:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
 .p3d-help { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 0 6px; }
 .p3d-model select { min-height: 26px; padding: 1px 28px 1px 6px; font-size: 12px; max-width: 190px; }
 .ed-banners { z-index: 2; }

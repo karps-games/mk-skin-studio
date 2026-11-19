@@ -1,5 +1,6 @@
 pub mod brres;
 pub mod budget;
+pub mod chr0;
 pub mod disc;
 pub mod discovery;
 pub mod export;
@@ -41,6 +42,7 @@ struct Current {
     originals: HashMap<String, Rgba8>,
     edits: HashMap<String, Edit>,
     model: Option<Arc<model::ModelBundle>>,
+    sources: Option<Arc<Vec<parts::ModelSource>>>,
 }
 
 impl Current {
@@ -217,7 +219,7 @@ async fn load_character(app: tauri::AppHandle, code: String) -> Result<Character
     .await?;
     let view = CharacterView { code: ch.code.clone(), name: ch.name.clone(), files: ch.files.len(), menu: found.menu_member.is_some(), textures };
     let state = app.state::<AppState>();
-    lock(&state).current = Some(Current { ch, textures: found.textures, originals: found.originals, edits: HashMap::new(), model: None });
+    lock(&state).current = Some(Current { ch, textures: found.textures, originals: found.originals, edits: HashMap::new(), model: None, sources: None });
     Ok(view)
 }
 
@@ -237,18 +239,29 @@ async fn model_load(app: tauri::AppHandle, character: String) -> Result<Arc<mode
         return Ok(m);
     }
     let code = ch.code.clone();
-    let bundle = blocking(move || {
+    let (bundle, sources) = blocking(move || {
         let sources = model::load_sources(&root, &ch)?;
         let map = texmap::analyze_with(&root, &ch, &sizes, Some(&originals)).ok();
-        Ok(Arc::new(model::bundle_with(&ch.code, &sources, &sizes, map.as_ref())))
+        Ok((Arc::new(model::bundle_with(&ch.code, &sources, &sizes, map.as_ref())), Arc::new(sources)))
     })
     .await?;
     let state = app.state::<AppState>();
     let mut s = lock(&state);
     if let Some(cur) = s.current.as_mut().filter(|c| c.ch.code == code) {
         cur.model = Some(bundle.clone());
+        cur.sources = Some(sources);
     }
     Ok(bundle)
+}
+
+#[tauri::command]
+async fn model_pose(app: tauri::AppHandle, model: usize, anim: String) -> Result<String, String> {
+    let sources = {
+        let state = app.state::<AppState>();
+        let s = lock(&state);
+        s.current.as_ref().and_then(|c| c.sources.clone()).ok_or("E:model.none")?
+    };
+    blocking(move || sources.get(model).and_then(|src| model::bake(src, &anim)).ok_or_else(|| "E:anim.unknown".to_string())).await
 }
 
 #[tauri::command]
@@ -551,6 +564,7 @@ pub fn run() {
             open_game,
             load_character,
             model_load,
+            model_pose,
             commit_texture,
             read_image,
             export_original,

@@ -26,7 +26,7 @@ function synth(w,h,hue){const c=document.createElement('canvas');c.width=w;c.hei
  g.fillStyle='rgba(255,255,255,1)';for(let x=0;x<w;x+=16)for(let y=(x/16)%2*16;y<h;y+=32)g.fillRect(x,y,8,8);g.clearRect(w*0.8,0,w*0.2,h*0.25);return c.toDataURL();}
 const TEX=[['mario_all',128,64,false,true],['mario_tx_64',64,64,false,false]].concat([0,1,2,3].map(i=>['mario_eye.'+i,32,64,true,i<2]));
 const BIKE=[['bike_suit_all',128,64,false,true],['bike_suit_tx_6432',32,64,false,false]];
-const texCache={};const tex=(code)=>texCache[code]||(texCache[code]=TEX.concat(code==='pc'?BIKE:[]).map(([name,width,height,eye,menu],i)=>({name,width,height,format:'CMPR',images:1,files:48,menu,eye,preview:synth(width,height,i*40),sha256:'synthetic-'+name})));
+const texCache={};const tex=(code)=>texCache[code]||(texCache[code]=TEX.concat(code==='pc'?BIKE:[]).map(([name,width,height,eye,menu],i)=>(window.bigEye&&name==='mario_eye.3'&&(width=64),{name,width,height,format:'CMPR',images:1,files:48,menu,eye,preview:synth(width,height,i*40),sha256:'synthetic-'+name})));
 const b64=(ta)=>{const u=new Uint8Array(ta.buffer,ta.byteOffset,ta.byteLength);let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode(...u.subarray(i,i+0x8000));return btoa(s);};
 function quad(x0,y0,x1,y1,z,uv,parts){const [u0,v0,u1,v1]=uv;return {pos:[x0,y1,z,x1,y1,z,x1,y0,z,x0,y0,z],nrm:[0,0,1,0,0,1,0,0,1,0,0,1],uvs:[u0,v0,u1,v0,u1,v1,u0,v1],idx:[0,1,2,0,2,3],parts};}
 function merge(texture,quads){const P=[],N=[],U=[],I=[],T=[];let base=0;for(const q of quads){P.push(...q.pos);N.push(...q.nrm);U.push(...q.uvs);I.push(...q.idx.map(i=>i+base));T.push(...q.parts);base+=4;}
@@ -50,6 +50,8 @@ function bundle(code){
   facts:facts(),links:[{low:'mario_tx_64',width:64,height:64,highs:[{texture:'mario_all',width:128,height:64}],samples:b64(lowSamples()),mapped:2048,distRel:0.01}],
   eyes:[{frames:[0,1,2,3].map(i=>'mario_eye.'+i),defaultFrame:'mario_eye.0',blink:['mario_eye.0','mario_eye.1','mario_eye.2','mario_eye.1','mario_eye.0']}]};
  b.models[0].vehicle='kart';b.models[0].detail='full';
+ b.models[0].bones=2;b.models[0].influences=[[[0,1]],[[1,1]]];b.models[0].anims=[{name:'drift_l',frames:10,looping:true}];
+ body.matrices=b64(new Int32Array(body.vertices));eye.matrices=b64(new Int32Array(eye.vertices).fill(1));
  if(code==='pc'){
   const low=merge('mario_tx_64',[quad(-30,10,30,70,0,[0,0,0.5,1],[0,0])]);
   const bikeBody=merge('bike_suit_all',[quad(-60,0,-1,100,0,[0,0,0.5,1],[0,0]),quad(1,0,60,100,0,[0.5,0,1,1],[1,1])]);
@@ -86,6 +88,7 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
   if(cmd==='load_character'){window.lastLoaded=args.code;window.committed=new Set();}
   if(cmd==='load_character')return {code:args.code,name:NAMES.find(n=>n[0]===args.code)[1],files:48,menu:true,textures:tex(args.code)};
   if(cmd==='model_load'){if(window.failModel)throw 'E:model.none';return bundle(args.character);}
+  if(cmd==='model_pose'){const f=new Float32Array(11*2*12);for(let i=0;i<11;i++)for(let b=0;b<2;b++){const o=(i*2+b)*12;f[o]=f[o+5]=f[o+10]=1;if(b===0)f[o+3]=i*3;}return b64(f);}
   if(cmd==='read_image')return {name:'green.png',width:40,height:20,sha256:'abc',dataUrl:importImage()};
   if(cmd==='commit_texture'){if(args.png)committed.add(args.name);else committed.delete(args.name);return !!args.png;}
   const ORDER=NAMES.map(n=>n[0]);
@@ -845,6 +848,64 @@ async function paint3d() {
   await value("window.noEyes=false");
 }
 
+async function animations() {
+  await boot("dark", "en", 1280, 720);
+  await value(`window.bigEye=true`);
+  await toEditor();
+  const T = "anim";
+  check(`${T} pose controls shown when the model has animations`, await value(`!document.getElementById('p3d-anim').classList.contains('hidden') && document.querySelectorAll('#p3d-anim option').length===2 && !document.getElementById('btn-p3d-play').classList.contains('hidden')`), "");
+  const rest = await value(`Array.from(${E}.preview.subs[0].pos)`);
+  const sig = () => value(`(()=>{const P=${E}.preview;P.render();const gl=P.renderer.getContext();const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight;const px=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);let s=0;for(let i=0;i<px.length;i+=4)s=(s*31+px[i]+px[i+1]*3+px[i+2]*7)>>>0;return s;})()`);
+  check(`${T} hovering the model draws a part highlight`, await value(`(()=>{const P=${E}.preview;const c=document.getElementById('p3d-canvas').getBoundingClientRect();let hit=null;for(let k=1;k<8&&!hit;k++)hit=P.pickAt(c.left+c.width*k/8,c.top+c.height/2);P.setHighlight(hit,false);const ok=!!P.highlight;P.render();P.setHighlight(null,false);return ok;})()`), "");
+  const restSig = await sig();
+  await value(`document.getElementById('eye-blink').click()`);
+  await sleep(3400);
+  await value(`document.getElementById('eye-blink').click()`);
+  await sleep(100);
+  await value(`(()=>{const s=document.getElementById('p3d-anim');s.value='drift_l';s.dispatchEvent(new Event('change'));})()`);
+  await sleep(300);
+  const moved = await value(`(()=>{const p=${E}.preview.subs[0].pos;const r=${JSON.stringify(rest)};return ${E}.preview.posed && p.some((v,i)=>Math.abs(v-r[i])>0.5);})()`);
+  check(`${T} choosing an animation moves the model`, moved, "");
+  await value(`document.getElementById('eye-blink').click()`);
+  await sleep(900);
+  check(`${T} expressions preview runs together with the animation`, await value(`${E}.blink && !document.getElementById('eye-blink').disabled && ${E}.anim && ${E}.anim.playing`), "");
+  const seen = new Set();
+  for (let k = 0; k < 10; k++) { seen.add(await value(`${E}.blinkFrame`)); await sleep(400); }
+  check(`${T} expressions preview skips frames with a different size`, !seen.has('mario_eye.3') && seen.size >= 3, JSON.stringify([...seen]));
+  const blinkSig = await sig();
+  await sleep(300);
+  check(`${T} body keeps moving on screen with expressions on`, (await sig()) !== blinkSig && (await sig()) !== restSig, "");
+  await value(`document.getElementById('eye-blink').click()`);
+  await sleep(100);
+  check(`${T} play button shows playing`, await value(`document.getElementById('btn-p3d-play').getAttribute('aria-pressed')==='true'`), "");
+  check(`${T} bone 1 vertices stay with their bone`, await value(`(()=>{const p=${E}.preview.subs[1].pos;const r=${E}.preview.rest.get(${E}.preview.subs[1].data).pos;return p.every((v,i)=>Math.abs(v-r[i])<1e-4);})()`), "");
+  await value(`document.getElementById('btn-p3d-play').click()`);
+  await sleep(100);
+  const f1 = await value(`${E}.anim.frame`);
+  check(`${T} the screen shows the pose after part highlights were cleared`, (await sig()) !== restSig, "");
+  await sleep(200);
+  check(`${T} pause keeps the frame`, (await value(`${E}.anim.frame`)) === f1 && (await value(`document.getElementById('btn-p3d-play').getAttribute('aria-pressed')==='false'`)), `${f1}`);
+  await value(`document.getElementById('btn-p3d-play').click()`);
+  await sleep(150);
+  check(`${T} play resumes`, await value(`${E}.anim.playing && document.getElementById('btn-p3d-play').getAttribute('aria-pressed')==='true'`), "");
+  await value(`document.getElementById('btn-p3d-play').click()`);
+  await sleep(100);
+  check(`${T} pause works again after resuming`, await value(`!${E}.anim.playing`), "");
+  const before = await value(`Array.from(${E}.pixelsOf(${E}.docs.get('mario_all'))).reduce((a,v)=>a+v,0)`);
+  await value(`(()=>{const c=document.getElementById('p3d-canvas').getBoundingClientRect();${E}.setTool('brush');${E}.down3d(new PointerEvent('pointerdown',{clientX:c.left+c.width/2,clientY:c.top+c.height/2,button:0,buttons:1}));})()`);
+  await sleep(150);
+  check(`${T} painting is blocked while posed`, (await value(`Array.from(${E}.pixelsOf(${E}.docs.get('mario_all'))).reduce((a,v)=>a+v,0)`)) === before && (await value(`!${E}.stroke3d`)), "");
+  check(`${T} hint explains how to paint`, await value(`document.body.innerText.includes('Choose Rest pose to paint on the model')`), "");
+  check(`${T} 3D bar does not overflow`, await value(`(()=>{const b=document.querySelector('.p3d-bar');return b.scrollWidth<=b.clientWidth+1;})()`), "");
+  const gaps = await value(`(()=>{const s=document.getElementById('p3d-anim').getBoundingClientRect(),a=document.getElementById('btn-p3d-pixels').getBoundingClientRect(),p=document.getElementById('btn-p3d-play').getBoundingClientRect();return [Math.round(s.left-a.right),Math.round(p.left-s.right),Math.round(s.height),Math.round(p.height)];})()`);
+  check(`${T} animation selector has room on both sides and matches the bar height`, gaps[0] >= 6 && gaps[1] >= 4 && gaps[2] === gaps[3], JSON.stringify(gaps));
+  check(`${T} selector focus ring stays inside its box`, await value(`(()=>{const s=document.getElementById('p3d-anim');s.focus();const c=getComputedStyle(s);return c.outlineStyle==='none'||parseFloat(c.outlineOffset)<0;})()`), "");
+  await shot("anim-posed-dark-en");
+  await value(`(()=>{const s=document.getElementById('p3d-anim');s.value='';s.dispatchEvent(new Event('change'));})()`);
+  await sleep(150);
+  check(`${T} rest pose restores the model exactly`, await value(`(()=>{const p=${E}.preview.subs[0].pos;const r=${JSON.stringify(rest)};return !${E}.preview.posed && !${E}.anim && p.every((v,i)=>v===r[i]);})()`), "");
+}
+
 async function handAndOutfits() {
   await boot("light", "en", 1280, 720);
   await toEditor();
@@ -1296,6 +1357,7 @@ try {
   await handAndOutfits();
   await sharedOutfits();
   await paint3d();
+  await animations();
   await functional();
   await controlChrome();
   await sliderDesign();
