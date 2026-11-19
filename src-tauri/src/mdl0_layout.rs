@@ -57,7 +57,7 @@ fn quantize(vals: &[f32], ty: u32, div: u32, out: &mut Vec<u8>) -> Result<(), St
 pub struct Layout {
     pub kinds: Vec<Kind>,
     pub chunks: Vec<Vec<u8>>,
-    align: Vec<usize>,
+    align: Vec<(usize, usize)>,
     links: Vec<[Loc; 3]>,
     names: Vec<(Loc, Loc, NameRef)>,
 }
@@ -203,7 +203,7 @@ impl Layout {
         }
         Ok(Layout {
             kinds: s.starts.values().copied().collect(),
-            align: starts.iter().map(|&p| p % 32).collect(),
+            align: starts.iter().map(|&p| (32, p % 32)).collect(),
             chunks,
             links,
             names: refs,
@@ -247,7 +247,7 @@ impl Layout {
         self.chunks[chunk].splice(at..at, bytes.iter().copied());
     }
 
-    fn duplicate(&mut self, src: usize, index: usize) -> usize {
+    fn insert_chunk(&mut self, index: usize, kind: Kind, bytes: Vec<u8>, align: (usize, usize)) -> usize {
         let fix = |l: &mut Loc| {
             if l.chunk >= index {
                 l.chunk += 1;
@@ -260,16 +260,123 @@ impl Layout {
             fix(f);
             fix(b);
         }
+        self.kinds.insert(index, kind);
+        self.align.insert(index, align);
+        self.chunks.insert(index, bytes);
+        index
+    }
+
+    fn duplicate(&mut self, src: usize, index: usize) -> usize {
+        self.insert_chunk(index, self.kinds[src], self.chunks[src].clone(), self.align[src]);
         let src = if src >= index { src + 1 } else { src };
-        self.kinds.insert(index, self.kinds[src]);
-        self.align.insert(index, self.align[src]);
-        self.chunks.insert(index, self.chunks[src].clone());
         let own = |l: Loc| if l.chunk == src { Loc { chunk: index, off: l.off } } else { l };
         let links: Vec<[Loc; 3]> = self.links.iter().filter(|l| l[0].chunk == src).map(|l| [own(l[0]), own(l[1]), own(l[2])]).collect();
         let names: Vec<(Loc, Loc, NameRef)> = self.names.iter().filter(|n| n.0.chunk == src).map(|(f, b, r)| (own(*f), own(*b), r.clone())).collect();
         self.links.extend(links);
         self.names.extend(names);
         index
+    }
+
+    fn name_at(&self, chunk: usize, off: usize) -> Option<&str> {
+        let at = Loc { chunk, off };
+        self.names.iter().find(|n| n.0 == at).map(|n| n.2.text.as_str())
+    }
+
+    fn target(&self, chunk: usize, off: usize) -> Option<Loc> {
+        let at = Loc { chunk, off };
+        self.links.iter().find(|l| l[0] == at).map(|l| l[2])
+    }
+
+    fn draws(&self, shape: u16) -> Result<Vec<(usize, usize, Option<[u16; 3]>)>, String> {
+        let mut out = Vec::new();
+        for (_, d) in self.items(0) {
+            let b = &self.chunks[d];
+            let mut p = 0;
+            let mut draw = None;
+            loop {
+                match b.get(p).copied().ok_or_else(crate::brres::bad)? {
+                    0 => p += 1,
+                    1 => break,
+                    2 | 5 => p += 5,
+                    3 => p += 4 + 6 * *b.get(p + 3).ok_or_else(crate::brres::bad)? as usize,
+                    4 => {
+                        if get16(b, p + 3) == shape {
+                            draw = Some([get16(b, p + 1), get16(b, p + 5), b[p + 7] as u16]);
+                        }
+                        p += 8;
+                    }
+                    _ => return Err(unsupported()),
+                }
+            }
+            out.push((d, p, draw));
+        }
+        Ok(out)
+    }
+
+    pub fn rigid_shapes(&self) -> Vec<(String, u32, String, String)> {
+        let Some(info) = self.kinds.iter().position(|k| *k == Kind::Info) else { return Vec::new() };
+        let Some(lut) = self.target(info, 0x24) else { return Vec::new() };
+        let lb = &self.chunks[lut.chunk];
+        let bones = self.items(1);
+        let mats = self.items(8);
+        let mut out = Vec::new();
+        for (name, c) in self.items(10) {
+            let b = &self.chunks[c];
+            let (Ok(cur), Ok(verts), Ok(id)) = (be32(b, 8), be32(b, 0x40), be32(b, 0x3C)) else { continue };
+            let Some(bone_id) = be32(lb, lut.off + 4 + cur as usize * 4).ok().filter(|_| (cur as i32) >= 0) else { continue };
+            let bone = bones.iter().find(|x| be32(&self.chunks[x.1], 0x0C).ok() == Some(bone_id)).map(|x| x.0.clone());
+            let mat = self.draws(id as u16).ok().and_then(|d| d.into_iter().find_map(|x| x.2)).and_then(|[m, _, _]| {
+                mats.iter().find(|x| be32(&self.chunks[x.1], 0x0C).ok() == Some(m as u32)).map(|x| x.0.clone())
+            });
+            if let (Some(bone), Some(mat)) = (bone, mat) {
+                out.push((name, verts, bone, mat));
+            }
+        }
+        out
+    }
+
+    pub fn add_material(&mut self, template: &str, name: &str, texture: &str) -> Result<u16, String> {
+        let mats = self.items(8);
+        let src = mats.iter().find(|x| x.0 == template).map(|x| x.1).ok_or_else(unsupported)?;
+        let last = mats.iter().map(|x| x.1).max().unwrap_or(src);
+        let id = mats.len() as u16;
+        let c = self.duplicate(src, last + 1);
+        self.rename(c, 8, name);
+        let n = be32(&self.chunks[c], 0x2C)? as usize;
+        let samplers = self.target(c, 0x30).filter(|_| n > 0).ok_or_else(unsupported)?.off;
+        self.rename(c, samplers, texture);
+        let b = &mut self.chunks[c];
+        set32(b, 0x0C, id as u32);
+        set32(b, samplers + 0x18, 1);
+        set32(b, samplers + 0x1C, 1);
+        for (k, v) in [1.0f32, 1.0, 0.0, 0.0, 0.0].iter().enumerate() {
+            b[0x1B0 + k * 4..0x1B4 + k * 4].copy_from_slice(&v.to_be_bytes());
+        }
+        self.add_entry(8, name, c)?;
+        let tev = self.target(c, 0x28).ok_or_else(unsupported)?.chunk;
+        self.add_entry(9, name, tev)?;
+        for k in 0..n {
+            let s = samplers + k * 0x34;
+            let tex = self.name_at(c, s).ok_or_else(unsupported)?.to_string();
+            let links = self.items(11);
+            let item = match links.iter().find(|x| x.0 == tex) {
+                Some(x) => x.1,
+                None => {
+                    let last = links.iter().map(|x| x.1).max().ok_or_else(unsupported)?;
+                    let item = self.insert_chunk(last + 1, Kind::Item(11), vec![0u8; 4], (4, 0));
+                    self.add_entry(11, &tex, item)?;
+                    item
+                }
+            };
+            let count = be32(&self.chunks[item], 0)? as usize;
+            let at = 4 + count * 8;
+            self.splice(item, at, &[0u8; 8]);
+            set32(&mut self.chunks[item], 0, count as u32 + 1);
+            let base = Loc { chunk: item, off: 0 };
+            self.links.push([Loc { chunk: item, off: at }, base, Loc { chunk: c, off: 0 }]);
+            self.links.push([Loc { chunk: item, off: at + 4 }, base, Loc { chunk: c, off: s }]);
+        }
+        Ok(id)
     }
 
     fn rename(&mut self, chunk: usize, off: usize, text: &str) {
@@ -392,7 +499,7 @@ impl Layout {
         Ok((new_id, div))
     }
 
-    pub fn add_rigid_mesh(&mut self, template: &str, name: &str, mesh: &Mesh) -> Result<(), String> {
+    pub fn add_rigid_mesh(&mut self, template: &str, name: &str, mesh: &Mesh, material: Option<u16>) -> Result<(), String> {
         let shapes = self.items(10);
         let ts = shapes.iter().find(|x| x.0 == template).map(|x| x.1).ok_or_else(unsupported)?;
         let t = self.chunks[ts].clone();
@@ -465,28 +572,10 @@ impl Layout {
         self.add_entry(10, name, c)?;
         let tid = be32(&t, 0x3C)? as u16;
         let mut added = false;
-        for (_, d) in self.items(0) {
-            let b = &self.chunks[d];
-            let mut p = 0;
-            let mut draw = None;
-            loop {
-                match b.get(p).copied().ok_or_else(crate::brres::bad)? {
-                    0 => p += 1,
-                    1 => break,
-                    2 | 5 => p += 5,
-                    3 => p += 4 + 6 * *b.get(p + 3).ok_or_else(crate::brres::bad)? as usize,
-                    4 => {
-                        if get16(b, p + 3) == tid {
-                            draw = Some([get16(b, p + 1), get16(b, p + 5), b[p + 7] as u16]);
-                        }
-                        p += 8;
-                    }
-                    _ => return Err(unsupported()),
-                }
-            }
+        for (d, p, draw) in self.draws(tid)? {
             if let Some([mat, bone, prio]) = draw {
                 let mut cmd = vec![4];
-                cmd.extend_from_slice(&mat.to_be_bytes());
+                cmd.extend_from_slice(&material.unwrap_or(mat).to_be_bytes());
                 cmd.extend_from_slice(&(shapes.len() as u16).to_be_bytes());
                 cmd.extend_from_slice(&bone.to_be_bytes());
                 cmd.push(prio as u8);
@@ -529,8 +618,8 @@ impl Layout {
     pub fn write(&self) -> (Vec<u8>, Vec<NameRef>) {
         let mut out = Vec::new();
         let mut start = Vec::with_capacity(self.chunks.len());
-        for (c, &a) in self.chunks.iter().zip(&self.align) {
-            while out.len() % 32 != a {
+        for (c, &(m, r)) in self.chunks.iter().zip(&self.align) {
+            while out.len() % m != r {
                 out.push(0);
             }
             start.push(out.len());
@@ -551,7 +640,7 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::brres::{dictionary, entries, Archive};
+    use crate::brres::{dictionary, entries, textures, Archive};
 
     fn tree_of(b: &[u8], g: usize) -> Vec<[u16; 3]> {
         let n = be32(b, g + 4).unwrap() as usize;
@@ -760,7 +849,7 @@ mod tests {
             let size = (maxx - minx).max(maxz - minz) * 0.45;
             let center = [(minx + maxx) / 2.0, top + size * 0.4, (minz + maxz) / 2.0];
             let mesh = box_mesh(&inv, center, size);
-            l.add_rigid_mesh("polygon1", "box", &mesh).unwrap_or_else(|e| panic!("{name} {e}"));
+            l.add_rigid_mesh("polygon1", "box", &mesh, None).unwrap_or_else(|e| panic!("{name} {e}"));
             l.extend_bounds(center.map(|c| c - size), center.map(|c| c + size));
             let (bytes, refs) = l.write();
             m.bytes = bytes;
@@ -798,5 +887,150 @@ mod tests {
             assert!(packed[e2.offset..e2.offset + e2.size] == out[..]);
             assert!(crate::yaz0::decode(&crate::yaz0::encode(&packed).unwrap()).unwrap() == packed);
         }
+    }
+
+    fn anchor(positions: &[f32]) -> ([f32; 3], f32) {
+        let pts: Vec<[f32; 3]> = positions.chunks(3).map(|p| [p[0], p[1], p[2]]).collect();
+        let (lo, hi) = pts.iter().fold((f32::MAX, f32::MIN), |(a, z), p| (a.min(p[1]), z.max(p[1])));
+        let band: Vec<&[f32; 3]> = pts.iter().filter(|p| p[1] > hi - (hi - lo) * 0.12).collect();
+        let (minx, maxx) = band.iter().fold((f32::MAX, f32::MIN), |(a, z), p| (a.min(p[0]), z.max(p[0])));
+        let (minz, maxz) = band.iter().fold((f32::MAX, f32::MIN), |(a, z), p| (a.min(p[2]), z.max(p[2])));
+        let size = (maxx - minx).max(maxz - minz) * 0.6;
+        ([(minx + maxx) / 2.0, hi, (minz + maxz) / 2.0], size)
+    }
+
+    fn ring_mesh(inv: &[f32; 12], center: [f32; 3], size: f32) -> Mesh {
+        let mut mesh = Mesh::default();
+        let (r, band, spike) = (size / 2.0, size * 0.22, size * 0.32);
+        let n = 16;
+        let push = |mesh: &mut Mesh, p: [f32; 3], nrm: [f32; 3], uv: [f32; 2]| {
+            mesh.positions.push(xf(inv, p, 1.0));
+            let nb = xf(inv, nrm, 0.0);
+            let len = (nb[0] * nb[0] + nb[1] * nb[1] + nb[2] * nb[2]).sqrt().max(1e-6);
+            mesh.normals.push(nb.map(|x| x / len));
+            mesh.colors.push([255, 255, 255, 255]);
+            mesh.uvs.push(uv);
+            (mesh.positions.len() - 1) as u16
+        };
+        let y0 = center[1] - band * 0.4;
+        for i in 0..n {
+            let (a0, a1) = (i as f32 / n as f32 * std::f32::consts::TAU, (i + 1) as f32 / n as f32 * std::f32::consts::TAU);
+            let at = |a: f32, y: f32| [center[0] + r * a.cos(), y, center[2] + r * a.sin()];
+            let nr = |a: f32| [a.cos(), 0.0, a.sin()];
+            let (u0, u1) = (i as f32 / n as f32, (i + 1) as f32 / n as f32);
+            let q = [
+                push(&mut mesh, at(a0, y0), nr(a0), [u0, 0.95]),
+                push(&mut mesh, at(a1, y0), nr(a1), [u1, 0.95]),
+                push(&mut mesh, at(a1, y0 + band), nr(a1), [u1, 0.55]),
+                push(&mut mesh, at(a0, y0 + band), nr(a0), [u0, 0.55]),
+            ];
+            for t in [[0, 1, 2], [0, 2, 3], [0, 2, 1], [0, 3, 2]] {
+                mesh.triangles.push(t.map(|k| q[k]));
+            }
+            if i % 2 == 0 {
+                let am = (a0 + a1) / 2.0;
+                let tip = [center[0] + r * am.cos(), y0 + band + spike, center[2] + r * am.sin()];
+                let s = [
+                    push(&mut mesh, at(a0, y0 + band), nr(a0), [u0, 0.5]),
+                    push(&mut mesh, at(a1, y0 + band), nr(a1), [u1, 0.5]),
+                    push(&mut mesh, tip, nr(am), [(u0 + u1) / 2.0, 0.05]),
+                ];
+                mesh.triangles.push([s[0], s[1], s[2]]);
+                mesh.triangles.push([s[0], s[2], s[1]]);
+            }
+        }
+        mesh
+    }
+
+    fn sample_texture() -> (u32, u32, Vec<u8>) {
+        let (w, h) = (32u32, 32u32);
+        let mut img = crate::texture::Rgba8 { width: w, height: h, pixels: Vec::new() };
+        for y in 0..h {
+            for x in 0..w {
+                let v = ((x * 8 + y * 4) % 256) as u8;
+                img.pixels.extend_from_slice(&[v, 255 - v, 128, 255]);
+            }
+        }
+        (w, h, crate::texture::encode(&img, 14, 1).unwrap())
+    }
+
+    fn decorate(label: &str, b: &[u8]) -> (Vec<u8>, usize) {
+        let (w, h, data) = sample_texture();
+        let mut a = Archive::parse(b).unwrap();
+        a.add_texture("accessory", w, h, 14, 1, &data).unwrap();
+        let before = crate::mdl0::parse_all(b).unwrap();
+        let mut count = 0;
+        for m in a.members.iter_mut().filter(|m| m.bytes.starts_with(b"MDL0")) {
+            let mut l = Layout::parse(&m.bytes, &m.names).unwrap();
+            let rigid = l.rigid_shapes();
+            let (shape, _, bone, mat) = rigid.iter().min_by_key(|x| x.1).unwrap_or_else(|| panic!("{label} {} no rigid shape", m.name)).clone();
+            let model = before.iter().find(|x| x.name == m.name).unwrap();
+            let all: Vec<f32> = model.submeshes.iter().flat_map(|s| s.positions.iter().copied()).collect();
+            let (center, size) = anchor(&all);
+            let (_, inv) = l.bone(&bone).unwrap();
+            let id = l.add_material(&mat, "accessory", "accessory").unwrap_or_else(|e| panic!("{label} {} {e}", m.name));
+            l.add_rigid_mesh(&shape, "accessory", &ring_mesh(&inv, center, size), Some(id)).unwrap_or_else(|e| panic!("{label} {} {e}", m.name));
+            l.extend_bounds(center.map(|c| c - size), center.map(|c| c + size));
+            let (bytes, refs) = l.write();
+            m.bytes = bytes;
+            m.names = refs;
+            count += 1;
+        }
+        let out = a.write();
+        let after = crate::mdl0::parse_all(&out).unwrap_or_else(|e| panic!("{label} {e}"));
+        for (x, y) in before.iter().zip(&after) {
+            let rest: Vec<String> = y.submeshes.iter().filter(|s| s.shape != "accessory").map(|s| format!("{s:?}")).collect();
+            let orig: Vec<String> = x.submeshes.iter().map(|s| format!("{s:?}")).collect();
+            assert_eq!(rest, orig, "{label} {}", x.name);
+            let added = y.submeshes.iter().find(|s| s.shape == "accessory").unwrap();
+            assert_eq!(added.material, "accessory");
+            assert_eq!(added.texture(y).map(|t| t.texture.as_str()), Some("accessory"), "{label} {}", x.name);
+        }
+        assert!(textures(&out).unwrap().iter().any(|t| t.name == "accessory" && t.width == w));
+        assert_eq!(format!("{:?}", crate::texmap::pat0_tracks(b)), format!("{:?}", crate::texmap::pat0_tracks(&out)), "{label}");
+        let again = Archive::parse(&out).unwrap();
+        for m in again.members.iter().filter(|m| m.bytes.starts_with(b"MDL0")) {
+            Layout::parse(&m.bytes, &m.names).unwrap_or_else(|e| panic!("{label} {} reparse {e}", m.name));
+        }
+        (out, count)
+    }
+
+    fn replace_member(raw: &[u8], member: &str, data: Vec<u8>) -> Vec<u8> {
+        let u = crate::u8arc::parse(raw).unwrap();
+        let target = u.find(member).unwrap().node;
+        let payloads: Vec<Vec<u8>> = u
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| if n.is_dir { Vec::new() } else if i == target { data.clone() } else { raw[n.a as usize..(n.a + n.b) as usize].to_vec() })
+            .collect();
+        crate::u8arc::write(&u.nodes, &payloads)
+    }
+
+    #[test]
+    fn real_textured_mesh_in_every_model() {
+        let Some(dir) = std::env::var_os("MKSS_TEST_GAME_DIR").and_then(|p| crate::game::resolve_root(std::path::Path::new(&p))) else {
+            return;
+        };
+        let ch = crate::game::scan(&dir).unwrap().into_iter().find(|c| c.code == "mr").unwrap();
+        let mut models = 0;
+        for rel in &ch.files {
+            let raw = crate::skin::read_archive(&dir, rel).unwrap();
+            let u = crate::u8arc::parse(&raw).unwrap();
+            let e = u.find("driver_model.brres").unwrap();
+            let (out, n) = decorate(rel, &raw[e.offset..e.offset + e.size]);
+            models += n;
+            let packed = replace_member(&raw, "driver_model.brres", out);
+            assert!(crate::yaz0::decode(&crate::yaz0::encode(&packed).unwrap()).unwrap() == packed);
+        }
+        let rel = crate::game::DRIVER_SZS;
+        let raw = crate::skin::read_archive(&dir, rel).unwrap();
+        let u = crate::u8arc::parse(&raw).unwrap();
+        let e = u.find("mr.brres").unwrap();
+        let (out, n) = decorate(rel, &raw[e.offset..e.offset + e.size]);
+        models += n;
+        let packed = replace_member(&raw, "mr.brres", out);
+        assert!(crate::u8arc::parse(&packed).unwrap().find("mr.brres").is_some());
+        assert!(models > 90, "{models}");
     }
 }
