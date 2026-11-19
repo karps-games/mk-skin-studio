@@ -168,8 +168,7 @@ pub struct Archive {
     pos: Vec<usize>,
     len: Vec<usize>,
     order: Vec<usize>,
-    root_names: Vec<(usize, usize, usize)>,
-    root_links: Vec<(usize, usize, usize)>,
+    folders: Vec<String>,
     strings: std::collections::HashMap<String, usize>,
     pub members: Vec<Member>,
 }
@@ -360,7 +359,7 @@ impl Archive {
             return Err(bad());
         }
         let root = be16(b, 12)? as usize;
-        if root < 16 || b.get(root..root + 4) != Some(b"root") {
+        if root != 16 || b.get(root..root + 4) != Some(b"root") {
             return Err(bad());
         }
         let root_end = root.checked_add(be32(b, root + 4)? as usize).filter(|&e| e <= b.len()).ok_or_else(bad)?;
@@ -369,17 +368,16 @@ impl Archive {
             pos: Vec::new(),
             len: Vec::new(),
             order: Vec::new(),
-            root_names: Vec::new(),
-            root_links: Vec::new(),
+            folders: Vec::new(),
             strings: std::collections::HashMap::new(),
             members: Vec::new(),
         };
         let top = root + 8;
         for (e, folder, sub) in entries(b, top)? {
-            a.root_names.push((e + 8, top, string_at(b, e + 8, top)?.0));
+            a.strings.entry(folder.clone()).or_insert(string_at(b, e + 8, top)?.0);
+            a.folders.push(folder.clone());
             for (se, name, at) in entries(b, sub)? {
-                a.root_names.push((se + 8, sub, string_at(b, se + 8, sub)?.0));
-                a.root_links.push((se + 12, sub, a.members.len()));
+                a.strings.entry(name.clone()).or_insert(string_at(b, se + 8, sub)?.0);
                 let size = be32(b, at + 4)? as usize;
                 if at < root_end || size < 16 || at + size > b.len() || be32(b, at + 12)? as i32 as i64 != -(at as i64) {
                     return Err(bad());
@@ -393,9 +391,8 @@ impl Archive {
                 a.len.push(size);
             }
         }
-        for &(field, base, _) in &a.root_names {
-            let (target, text) = string_at(b, field, base)?;
-            a.strings.entry(text).or_insert(target);
+        if a.members.is_empty() {
+            return Err(bad());
         }
         a.order = (0..a.members.len()).collect();
         a.order.sort_by_key(|&i| a.pos[i]);
@@ -407,20 +404,72 @@ impl Archive {
         Ok(a)
     }
 
+    pub fn add_member(&mut self, folder: &str, name: &str, bytes: Vec<u8>, names: Vec<NameRef>) -> Result<(), String> {
+        if self.members.iter().any(|m| m.folder == folder && m.name == name) {
+            return Err("E:file.exists".into());
+        }
+        if !self.folders.iter().any(|f| f == folder) {
+            self.folders.push(folder.to_string());
+        }
+        let at = self.order.iter().rposition(|&i| self.members[i].folder == folder).map_or(self.order.len(), |p| p + 1);
+        self.order.insert(at, self.members.len());
+        self.members.push(Member { folder: folder.to_string(), name: name.to_string(), bytes, names });
+        Ok(())
+    }
+
+    pub fn add_texture(&mut self, name: &str, width: u32, height: u32, format: u32, images: u32, data: &[u8]) -> Result<(), String> {
+        let template = self.members.iter().find(|m| m.bytes.starts_with(b"TEX0")).ok_or_else(bad)?;
+        if data_len(format, width, height, images) != Some(data.len()) {
+            return Err(bad());
+        }
+        let mut b = template.bytes[..0x40].to_vec();
+        b[0x10..0x14].copy_from_slice(&0x40u32.to_be_bytes());
+        b[0x18..0x1C].copy_from_slice(&0u32.to_be_bytes());
+        b[0x1C..0x1E].copy_from_slice(&(width as u16).to_be_bytes());
+        b[0x1E..0x20].copy_from_slice(&(height as u16).to_be_bytes());
+        b[0x20..0x24].copy_from_slice(&format.to_be_bytes());
+        b[0x24..0x28].copy_from_slice(&images.to_be_bytes());
+        b[0x28..0x2C].copy_from_slice(&0f32.to_be_bytes());
+        b[0x2C..0x30].copy_from_slice(&((images - 1) as f32).to_be_bytes());
+        b.extend_from_slice(data);
+        let folder = template.folder.clone();
+        self.add_member(&folder, name, b, vec![NameRef::new(0x14, 0, name)])
+    }
+
     pub fn write(&self) -> Vec<u8> {
         let raw = &self.raw;
-        let Some(&first) = self.order.first() else { return raw.clone() };
-        let mut out = raw[..self.pos[first]].to_vec();
+        let groups: Vec<Vec<usize>> = self.folders.iter().map(|f| (0..self.members.len()).filter(|&i| &self.members[i].folder == f).collect()).collect();
+        let mut out = raw[..16].to_vec();
+        out.extend_from_slice(b"root\0\0\0\0");
+        let top = out.len();
+        let mut starts = vec![top];
+        let mut at = top + 8 + (groups.len() + 1) * 16;
+        for g in &groups {
+            starts.push(at);
+            at += 8 + (g.len() + 1) * 16;
+        }
+        out.resize(at, 0);
+        let root_len = (at - 16) as i64;
+        put(&mut out, 20, root_len);
+        let first = self.pos[self.order.iter().copied().find(|&i| i < self.pos.len()).unwrap_or(0)];
         let mut new_pos = vec![0usize; self.members.len()];
-        let mut end = self.pos[first];
+        let mut end = first;
         for &i in &self.order {
-            out.extend_from_slice(&raw[end..self.pos[i]]);
-            while out.len() % 32 != self.pos[i] % 32 {
-                out.push(0);
+            if i < self.pos.len() {
+                if self.pos[i] > end {
+                    out.extend_from_slice(&raw[end..self.pos[i]]);
+                }
+                while out.len() % 32 != self.pos[i] % 32 {
+                    out.push(0);
+                }
+                end = self.pos[i] + self.len[i];
+            } else {
+                while out.len() % 32 != 0 {
+                    out.push(0);
+                }
             }
             new_pos[i] = out.len();
             out.extend_from_slice(&self.members[i].bytes);
-            end = self.pos[i] + self.len[i];
         }
         while out.len() % 32 != end % 32 {
             out.push(0);
@@ -428,11 +477,14 @@ impl Archive {
         let shift = out.len() as i64 - end as i64;
         out.extend_from_slice(&raw[end..]);
         let mut added: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        let mut texts: Vec<&str> = self.folders.iter().map(|f| f.as_str()).collect();
         for m in &self.members {
-            for r in &m.names {
-                if r.origin.is_none() && !self.strings.contains_key(&r.text) {
-                    added.insert(&r.text, 0);
-                }
+            texts.push(&m.name);
+            texts.extend(m.names.iter().filter(|r| r.origin.is_none()).map(|r| r.text.as_str()));
+        }
+        for t in texts {
+            if !self.strings.contains_key(t) {
+                added.insert(t, 0);
             }
         }
         for (text, at) in added.iter_mut() {
@@ -447,29 +499,47 @@ impl Archive {
         while out.len() % 4 != 0 {
             out.push(0);
         }
-        let target = |r: &NameRef| -> i64 {
-            match r.origin {
-                Some(t) => t as i64 + shift,
-                None => match self.strings.get(&r.text) {
-                    Some(&t) => t as i64 + shift,
-                    None => added[r.text.as_str()] as i64,
-                },
+        let string = |text: &str| -> i64 {
+            match self.strings.get(text) {
+                Some(&t) => t as i64 + shift,
+                None => added[text] as i64,
             }
         };
         let len = out.len() as i64;
         put(&mut out, 8, len);
-        for &(field, base, t) in &self.root_names {
-            put(&mut out, field, t as i64 + shift - base as i64);
-        }
-        for &(field, base, i) in &self.root_links {
-            put(&mut out, field, new_pos[i] as i64 - base as i64);
+        put(&mut out, 12, ((16i64) << 16) | (self.members.len() as i64 + 1));
+        let write_group = |out: &mut Vec<u8>, g: usize, items: &[(&str, usize)]| {
+            let refs: Vec<&[u8]> = items.iter().map(|x| x.0.as_bytes()).collect();
+            put(out, g, (8 + (items.len() + 1) * 16) as i64);
+            put(out, g + 4, items.len() as i64);
+            for (k, [id, left, right]) in dictionary(&refs).into_iter().enumerate() {
+                let e = g + 8 + k * 16;
+                out[e..e + 2].copy_from_slice(&id.to_be_bytes());
+                out[e + 4..e + 6].copy_from_slice(&left.to_be_bytes());
+                out[e + 6..e + 8].copy_from_slice(&right.to_be_bytes());
+                if k > 0 {
+                    let (text, target) = items[k - 1];
+                    put(out, e + 8, string(text) - g as i64);
+                    put(out, e + 12, target as i64 - g as i64);
+                }
+            }
+        };
+        let folders: Vec<(&str, usize)> = self.folders.iter().map(|f| f.as_str()).zip(starts[1..].iter().copied()).collect();
+        write_group(&mut out, top, &folders);
+        for (gi, g) in groups.iter().enumerate() {
+            let items: Vec<(&str, usize)> = g.iter().map(|&i| (self.members[i].name.as_str(), new_pos[i])).collect();
+            write_group(&mut out, starts[gi + 1], &items);
         }
         for (i, m) in self.members.iter().enumerate() {
             let p = new_pos[i];
             put(&mut out, p + 4, m.bytes.len() as i64);
             put(&mut out, p + 12, -(p as i64));
             for r in &m.names {
-                put(&mut out, p + r.at, target(r) - (p + r.base) as i64);
+                let t = match r.origin {
+                    Some(t) => t as i64 + shift,
+                    None => string(&r.text),
+                };
+                put(&mut out, p + r.at, t - (p + r.base) as i64);
             }
         }
         out
@@ -522,7 +592,7 @@ mod archive_tests {
         b.truncate(0x120);
         let len = b.len() as i64;
         w(&mut b, 8, len);
-        b
+        Archive::parse(&b).unwrap().write()
     }
 
     #[test]
@@ -544,6 +614,23 @@ mod archive_tests {
         assert_eq!(after[0].name, "skin");
         assert_eq!(&out[after[0].data..after[0].data + after[0].len], &b[before[0].data..before[0].data + before[0].len]);
         assert_eq!(Archive::parse(&out).unwrap().members[0].names, a.members[0].names.iter().map(|r| NameRef { origin: Some(r.origin.unwrap() + 64), ..r.clone() }).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn added_texture_is_indexed_and_readable() {
+        let b = tiny();
+        let mut a = Archive::parse(&b).unwrap();
+        let data: Vec<u8> = (0..32).map(|i| (i * 7) as u8).collect();
+        a.add_texture("gold", 8, 8, 14, 1, &data).unwrap();
+        assert!(a.add_texture("gold", 8, 8, 14, 1, &data).is_err());
+        let out = a.write();
+        let t = textures(&out).unwrap();
+        assert_eq!(t.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["skin", "gold"]);
+        assert_eq!((t[1].width, t[1].height, t[1].format, t[1].images), (8, 8, 14, 1));
+        assert!(out[t[1].data..t[1].data + t[1].len] == data[..]);
+        let before = &textures(&b).unwrap()[0];
+        assert!(out[t[0].data..t[0].data + t[0].len] == b[before.data..before.data + before.len]);
+        assert_eq!(Archive::parse(&out).unwrap().write(), out);
     }
 
     #[test]
