@@ -38,6 +38,8 @@ const dynamic = {
   tool: ["brush", "eraser", "fill", "picker", "line", "rect", "select", "wand", "move", "hand"],
   blend: ["normal", "multiply", "screen", "overlay", "color", "hue"],
   color: ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink", "brown", "beige", "white", "gray", "black"],
+  shape: ["sphere", "box", "cylinder", "cone", "ring"],
+  bone: ["face_1", "spin", "skl_root", "wrist_l1", "wrist_r1", "arm_l1", "arm_l2", "arm_r1", "arm_r2", "leg_l1", "leg_l2", "leg_r1", "leg_r2", "ankle_l1", "ankle_r1"],
   part: ["head", "face", "hands", "arms", "torso", "legs", "feet", "eyes", "hair", "cap", "crown", "shell", "dress", "emblem", "gloves", "shoes", "skin", "other"],
 };
 for (const [p, ks] of Object.entries(dynamic)) for (const k of ks) used.add(`${p}.${k}`);

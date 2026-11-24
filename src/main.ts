@@ -9,7 +9,7 @@ import { initWindowChrome } from "./window-chrome";
 import { initTutorial } from "./tour";
 import { GameDiscovery } from "./game-discovery";
 import { Editor, type CharacterView } from "./editor/editor";
-import { apply as applyProject, parseManifest, serialize, type Project } from "./editor/project";
+import { accessoriesOf, apply as applyDocs, parseManifest, serialize, type Project } from "./editor/project";
 import { composite } from "./editor/doc";
 
 const VERSION = "1.0.1";
@@ -419,7 +419,12 @@ async function pickImage() {
   discovery.choose(path);
 }
 
-const TAGS = ["body", "eyes", "bike", "low"] as const;
+const TAGS = ["body", "eyes", "bike", "low", "accessories"] as const;
+async function applyProject(p: Project, docs: typeof editor.docs) {
+  const res = await applyDocs(p, docs);
+  editor.setAccessories(accessoriesOf(p));
+  return res;
+}
 function renderCharactersHead() {
   const p = state.project;
   const name = $<HTMLInputElement>("proj-name");
@@ -522,7 +527,7 @@ async function saveCharacter(): Promise<boolean> {
   if (!ch || !p) return false;
   const changes = editor.changes;
   const m = await run(t("busy.wait"), async () => {
-    const project = await serialize(editor.docs.values(), { code: ch.code, name: ch.name }, VERSION);
+    const project = await serialize(editor.docs.values(), { code: ch.code, name: ch.name }, VERSION, editor.accessories);
     const meta = await invoke<Meta>("project_char_write", { id: p.id, code: ch.code, name: ch.name, project, edits: editor.editTags() });
     await invoke("autosave_clear", { id: p.id, code: ch.code }).catch(() => {});
     return meta;
@@ -558,7 +563,7 @@ async function autosave() {
   if (!ch || !p || !dirty() || editor.changes === state.autosavedAt) return;
   const changes = editor.changes;
   try {
-    await invoke("autosave_write", { id: p.id, code: ch.code, project: await serialize(editor.docs.values(), { code: ch.code, name: ch.name }, VERSION) });
+    await invoke("autosave_write", { id: p.id, code: ch.code, project: await serialize(editor.docs.values(), { code: ch.code, name: ch.name }, VERSION, editor.accessories) });
     state.autosavedAt = changes;
   } catch {}
 }
@@ -634,7 +639,7 @@ async function exportMod() {
       await applyProject(saved, editor.docs);
       editor.applied();
       await editor.commitAll();
-      if ((await invoke<number>("pack_stage")) > 0) staged++;
+      if ((await invoke<number>("pack_stage", { accessories: editor.exportAccessories() })) > 0) staged++;
     }
     state.character = null;
     unlisten = await listen<Progress>("mkss-progress", (ev) => {

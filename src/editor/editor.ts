@@ -4,6 +4,7 @@ import { applyStatic, errText, t, type Key } from "../i18n";
 import { CanvasView, isTyping } from "./canvasview";
 import { ColorPicker } from "./colorpicker";
 import { BLENDS, History, activeLayer, baseEdited, composite, identityAdjust, isEdited, newDoc, touch, type Blend, type Doc, type Layer } from "./doc";
+import { BONES, LIMIT, SHAPES, baseBone, boneOrigin, clean, placeAt, rebind, type Accessory, type GizmoMode, type Shape, type ShapeView, type Vec3 } from "./accessories";
 import { icon } from "./icons";
 import { applyStroke, fillMask, lineStroke, maskBBox, maskFromRuns, maskOutline, palette, rectStroke, regionMask, replaceColor, hex, Stroke, type BrushOpts, type PaintMode, type RGBA } from "./paint";
 import { decodeDataUrl, pngDataUrl } from "./png";
@@ -102,6 +103,8 @@ export class Editor {
   onEdited: () => void = () => {};
   toast: (msg: string, kind?: "error" | "ok") => void = () => {};
   changes = 0;
+  accessories: Accessory[] = [];
+  accSel = -1;
 
   constructor() {
     this.view = new CanvasView($("ed-canvas") as HTMLCanvasElement, {
@@ -139,6 +142,10 @@ export class Editor {
       this.renderHover();
     };
     this.preview.onNavStart = () => this.cancelStroke3d();
+    if (this.preview.rig) {
+      this.preview.rig.onEdit = (i, _before, after) => this.editAcc((list) => (list[i] = after));
+      this.preview.rig.onLive = (_i, a) => this.renderAccFields(a);
+    }
     if (!this.preview.ok) this.p3dMessage(t("p3d.failed", { why: t("p3d.noWebgl") }));
     this.history.onChange = (d) => this.changed(d, true);
     this.bind3d();
@@ -283,6 +290,7 @@ export class Editor {
       const collapsed = p.classList.toggle("collapsed");
       $("parts-toggle").setAttribute("aria-expanded", String(!collapsed));
     });
+    this.bindAccPanel();
     for (const v of ["kart", "bike"] as Vehicle[]) $(`veh-${v}`).addEventListener("click", () => this.setOutfit(v, this.detail));
     for (const d of ["full", "low"] as Detail[]) $(`det-${d}`).addEventListener("click", () => this.setOutfit(this.vehicle, d));
     this.setTool("brush");
@@ -325,8 +333,11 @@ export class Editor {
     this.bundle = null;
     this.modelError = null;
     this.focus = this.hover = null;
+    this.accessories = [];
+    this.accSel = -1;
     this.stopAnim();
     this.preview.clear();
+    this.syncAcc();
     for (const x of ch.textures) {
       const img = await decodeDataUrl(x.preview);
       const d = newDoc(x.name, img.width, img.height, img.data, x.sha256);
@@ -358,7 +369,8 @@ export class Editor {
       else if (bike && bike.has(d.name) && !kart!.has(d.name)) tags.add("bike");
       else tags.add("body");
     }
-    return ["body", "eyes", "bike", "low"].filter((tg) => tags.has(tg));
+    if (this.accessories.length) tags.add("accessories");
+    return ["body", "eyes", "bike", "low", "accessories"].filter((tg) => tags.has(tg));
   }
 
   async loadModel(code: string) {
@@ -374,6 +386,7 @@ export class Editor {
       this.outfitViews.clear();
       this.setOutfit("kart", "full");
       this.renderEyePanel();
+      void this.loadShapes();
       this.view.setUnused(this.current ? this.unusedMask(this.current.name) : null);
     } catch (e) {
       this.modelError = errText(e);
@@ -385,6 +398,7 @@ export class Editor {
     this.renderParts();
     this.refreshOutlines();
     this.renderSwitcherButton();
+    this.renderAccPanel();
   }
 
   texParts(name: string): TexParts | undefined {
@@ -1555,6 +1569,7 @@ export class Editor {
     this.stopAnim();
     this.preview.show(m);
     this.renderAnimBar(m);
+    this.renderAccPanel();
     this.p3dMessage(null);
     $("p3d-label").textContent = this.modelLabel(m);
     for (const d of this.docs.values()) if (!this.eyeGroupOf(d.name) && this.preview.hasTexture(d.name)) this.preview.update(d.name);
@@ -1566,6 +1581,195 @@ export class Editor {
   private animToken = 0;
   private playState = "";
   private poses = new Map<string, Float32Array>();
+
+  private accMode: GizmoMode = "translate";
+  private async loadShapes() {
+    const rig = this.preview.rig;
+    if (!rig || rig.ready) return;
+    try {
+      rig.setShapes(await invoke<ShapeView[]>("accessory_shapes"));
+    } catch (e) {
+      this.toast(errText(e));
+    }
+    this.syncAcc();
+  }
+  setAccessories(list: unknown) {
+    this.accessories = clean(list);
+    this.accSel = -1;
+    this.syncAcc();
+  }
+  exportAccessories() {
+    return this.accessories.filter((a) => !a.hidden).map(({ shape, bone, position, rotation, scale, color }) => ({ shape, bone: baseBone(bone), position, rotation, scale, color }));
+  }
+  private syncAcc() {
+    this.preview.rig?.set(this.accessories, this.accSel);
+    this.renderAccPanel();
+  }
+  private editAcc(fn: (list: Accessory[]) => void) {
+    const d = this.current;
+    if (!d) return;
+    const before = structuredClone(this.accessories), selBefore = this.accSel;
+    fn(this.accessories);
+    this.accSel = Math.min(this.accSel, this.accessories.length - 1);
+    const after = structuredClone(this.accessories), selAfter = this.accSel;
+    const restore = (list: Accessory[], sel: number) => {
+      this.accessories = structuredClone(list);
+      this.accSel = sel;
+      this.syncAcc();
+    };
+    this.history.custom(d, () => restore(before, selBefore), () => restore(after, selAfter));
+    this.changed(d);
+    this.syncAcc();
+  }
+  selectAcc(i: number) {
+    this.accSel = i;
+    this.syncAcc();
+  }
+  private pickAccessory(x: number, y: number) {
+    const rig = this.preview.rig;
+    const a = rig?.pick(x, y);
+    if (!rig || !a || a.index < 0) return false;
+    const hit = this.preview.hitAt(x, y);
+    if (hit && hit.distance < a.distance) return false;
+    this.selectAcc(a.index);
+    return true;
+  }
+  private accModel(): ModelData | null {
+    const m = this.preview.current;
+    return m && (m.boneNames?.length ?? 0) > 1 && m.bind?.length ? m : null;
+  }
+  boneLabel(name: string) {
+    const b = baseBone(name);
+    return (BONES as readonly string[]).includes(b) ? t(`bone.${b}` as Key) : b;
+  }
+  private accBones(m: ModelData): string[] {
+    const names = [...new Set((m.boneNames ?? []).map(baseBone))];
+    const known = BONES.filter((b) => names.includes(b));
+    return [...known, ...names.filter((n) => !(known as readonly string[]).includes(n))];
+  }
+  addAccessory(shape: Shape) {
+    const rig = this.preview.rig, m = this.accModel();
+    if (!rig || !m || this.accessories.length >= LIMIT) return;
+    const bone = ["face_1", "spin"].find((b) => rig.boneIndex(b, m) >= 0) ?? this.accBones(m)[0];
+    const bind = m.bind![rig.boneIndex(bone, m)];
+    const size = Math.max(1, Math.round((m.bboxMax[1] - m.bboxMin[1]) * 0.18));
+    const at = this.accSpot(m, bone, bind);
+    const n = this.accessories.filter((a) => a.shape === shape).length + 1;
+    const acc: Accessory = { name: `${t(`shape.${shape}` as Key)} ${n}`, shape, bone, color: [220, 40, 40], ...placeAt(bind, at, size) };
+    this.editAcc((list) => {
+      list.push(acc);
+      this.accSel = list.length - 1;
+    });
+  }
+  private accSpot(m: ModelData, bone: string, bind: number[]): Vec3 {
+    const o = boneOrigin(bind);
+    return baseBone(bone) === "face_1" ? [o[0], o[1] + (m.bboxMax[1] - m.bboxMin[1]) * 0.14, o[2]] : o;
+  }
+  private setAccMode(mode: GizmoMode) {
+    this.accMode = mode;
+    this.preview.rig?.setMode(mode);
+    this.renderAccPanel();
+  }
+  private accField(): "position" | "rotation" | "scale" {
+    return this.accMode === "translate" ? "position" : this.accMode === "rotate" ? "rotation" : "scale";
+  }
+  renderAccFields(a: Accessory) {
+    const v = a[this.accField()];
+    (["x", "y", "z"] as const).forEach((k, i) => {
+      const inp = $(`acc-${k}`) as HTMLInputElement;
+      if (document.activeElement !== inp) inp.value = String(v[i]);
+    });
+  }
+  private bindAccPanel() {
+    $("acc-toggle").addEventListener("click", () => {
+      const collapsed = $("acc-panel").classList.toggle("collapsed");
+      $("acc-toggle").setAttribute("aria-expanded", String(!collapsed));
+    });
+    const add = $("acc-add") as HTMLSelectElement;
+    add.addEventListener("change", () => {
+      const shape = add.value as Shape;
+      add.value = "";
+      if (SHAPES.includes(shape)) this.addAccessory(shape);
+    });
+    $("acc-list").addEventListener("click", (e) => {
+      const li = (e.target as HTMLElement).closest<HTMLElement>("li[data-i]");
+      if (!li) return;
+      const i = Number(li.dataset.i);
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("button");
+      if (btn?.classList.contains("vis")) this.editAcc((list) => (list[i].hidden = !list[i].hidden || undefined));
+      else if (btn?.classList.contains("del")) this.editAcc((list) => {
+        list.splice(i, 1);
+        if (this.accSel >= i) this.accSel = this.accSel === i ? -1 : this.accSel - 1;
+      });
+      else this.selectAcc(this.accSel === i ? -1 : i);
+    });
+    $("acc-bone").addEventListener("change", () => {
+      const i = this.accSel, m = this.accModel(), rig = this.preview.rig;
+      const bone = ($("acc-bone") as HTMLSelectElement).value;
+      if (i < 0 || !m || !rig) return;
+      const a = this.accessories[i];
+      const old = rig.boneIndex(a.bone, m), next = rig.boneIndex(bone, m);
+      if (next < 0) return;
+      const placed = rebind(a, old >= 0 ? m.bind![old] : null, m.bind![next], this.accSpot(m, bone, m.bind![next]));
+      this.editAcc((list) => (list[i] = { ...list[i], bone, ...placed }));
+    });
+    const color = $("acc-color") as HTMLInputElement;
+    const rgb = (): Vec3 => [1, 3, 5].map((k) => parseInt(color.value.slice(k, k + 2), 16)) as Vec3;
+    color.addEventListener("input", () => {
+      const i = this.accSel;
+      if (i >= 0) this.preview.rig?.apply(i, { ...this.accessories[i], color: rgb() });
+    });
+    color.addEventListener("change", () => {
+      const i = this.accSel;
+      if (i >= 0) this.editAcc((list) => (list[i] = { ...list[i], color: rgb() }));
+    });
+    for (const mode of ["translate", "rotate", "scale"] as GizmoMode[]) $(`acc-${mode}`).addEventListener("click", () => this.setAccMode(mode));
+    (["x", "y", "z"] as const).forEach((k, axis) => {
+      $(`acc-${k}`).addEventListener("change", () => {
+        const i = this.accSel, v = Number(($(`acc-${k}`) as HTMLInputElement).value);
+        if (i < 0 || !Number.isFinite(v)) return this.renderAccPanel();
+        const f = this.accField();
+        this.editAcc((list) => {
+          const next = [...list[i][f]] as Vec3;
+          next[axis] = f === "scale" && Math.abs(v) < 0.01 ? 0.01 : v;
+          list[i] = { ...list[i], [f]: next };
+        });
+      });
+    });
+  }
+  renderAccPanel() {
+    const panel = $("acc-panel");
+    const m = this.accModel();
+    const rig = this.preview.rig;
+    panel.classList.toggle("hidden", !this.bundle || !rig);
+    if (!this.bundle || !rig) return;
+    const add = $("acc-add") as HTMLSelectElement;
+    add.innerHTML = [`<option value="">${esc(t("acc.add"))}</option>`, ...SHAPES.map((s) => `<option value="${s}">${esc(t(`shape.${s}` as Key))}</option>`)].join("");
+    add.value = "";
+    add.disabled = !m || !rig.ready || this.accessories.length >= LIMIT;
+    const list = $("acc-list");
+    list.innerHTML = this.accessories.length
+      ? this.accessories
+          .map((a, i) => {
+            const hex = `#${a.color.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+            return `<li data-i="${i}" role="option" aria-selected="${i === this.accSel}" class="${i === this.accSel ? "on" : ""}${a.hidden ? " off" : ""}"><i class="sw" style="background:${hex}"></i><span>${esc(a.name)}</span><small>${esc(this.boneLabel(a.bone))}</small><button type="button" class="icon-btn vis" data-i18n-title="acc.visible" title="${esc(t("acc.visible"))}" aria-pressed="${!a.hidden}">${icon(a.hidden ? "eyeOff" : "eye")}</button><button type="button" class="icon-btn del" data-i18n-title="acc.delete" title="${esc(t("acc.delete"))}">${icon("trash")}</button></li>`;
+          })
+          .join("")
+      : `<li class="empty">${esc(t("acc.empty"))}</li>`;
+    const a = this.accessories[this.accSel];
+    $("acc-props").classList.toggle("hidden", !a);
+    $("acc-hint").textContent = !m ? t("acc.noSkeleton") : this.accessories.length >= LIMIT ? t("acc.limit", { n: LIMIT }) : a && !rig.shown(this.accSel) && !a.hidden ? t("acc.otherOutfit") : "";
+    $("acc-hint").classList.toggle("hidden", !$("acc-hint").textContent);
+    if (!a) return;
+    const bone = $("acc-bone") as HTMLSelectElement;
+    const bones = m ? this.accBones(m) : [baseBone(a.bone)];
+    if (!bones.includes(baseBone(a.bone))) bones.unshift(baseBone(a.bone));
+    bone.innerHTML = bones.map((b) => `<option value="${esc(b)}">${esc(this.boneLabel(b))}</option>`).join("");
+    bone.value = baseBone(a.bone);
+    ($("acc-color") as HTMLInputElement).value = `#${a.color.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+    for (const mode of ["translate", "rotate", "scale"] as GizmoMode[]) $(`acc-${mode}`).setAttribute("aria-checked", String(mode === this.accMode));
+    this.renderAccFields(a);
+  }
 
   private renderAnimBar(view: ModelData) {
     const main = this.bundle?.models.find((m) => m.submeshes[0] === view.submeshes[0]) ?? null;
@@ -1756,7 +1960,8 @@ export class Editor {
     });
   }
   private down3d(e: PointerEvent) {
-    if (this.mode !== "3d" || e.altKey || this.tool === "hand" || this.preview.navigating || (e.button !== 0 && e.button !== 2) || !this.bundle) return;
+    if (this.mode !== "3d" || e.altKey || this.tool === "hand" || this.preview.navigating || (e.button !== 0 && e.button !== 2) || !this.bundle || (e.button === 0 && this.preview.rig?.grab(e.clientX, e.clientY))) return;
+    if (e.button === 0 && this.pickAccessory(e.clientX, e.clientY)) return;
     if (this.anim) {
       if (e.button === 0) this.toast(t("p3d.poseHint"), "ok");
       return;
@@ -2111,6 +2316,7 @@ export class Editor {
         } else if (k === "delete" || k === "backspace") this.clearSelectionPixels();
         else if (k === "?" || k === "f1") togglePop("help-pop", $("btn-help"));
         else if (k === "escape") {
+          if (this.accSel >= 0) this.selectAcc(-1);
           $("tex-pop").classList.add("hidden");
           $("help-pop").classList.add("hidden");
           $("replace-pop").classList.add("hidden");

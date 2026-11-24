@@ -297,6 +297,31 @@
             <div class="panel-head"><h3><button type="button" id="parts-toggle" class="collapse-btn" aria-expanded="true" aria-controls="parts-list"><span data-i18n="parts.title">Body parts</span></button></h3><button type="button" class="link mini" id="parts-clear" data-i18n="parts.clear" disabled>Clear selection</button></div>
             <ul id="parts-list" class="parts-list scroll" role="listbox"></ul>
           </div>
+          <div class="panel acc-panel only-3d hidden" id="acc-panel">
+            <div class="panel-head"><h3><button type="button" id="acc-toggle" class="collapse-btn" aria-expanded="true" aria-controls="acc-body"><span data-i18n="acc.title">Accessories</span></button></h3><select id="acc-add" class="acc-add" data-i18n-title="acc.addTip"></select></div>
+            <div id="acc-body" class="acc-body">
+              <ul id="acc-list" class="acc-list scroll" role="listbox" data-i18n-aria="acc.title"></ul>
+              <div id="acc-props" class="acc-props hidden">
+                <div class="acc-row">
+                  <label class="opt acc-bone"><span data-i18n="acc.bone">Attach to</span><select id="acc-bone"></select></label>
+                  <label class="opt acc-color"><span data-i18n="acc.color">Colour</span><input type="color" id="acc-color" /></label>
+                </div>
+                <div class="acc-row">
+                  <div class="seg" role="radiogroup" data-i18n-title="acc.modeTip">
+                    <button type="button" role="radio" id="acc-translate" aria-checked="true"><span data-i18n="acc.move">Move</span></button>
+                    <button type="button" role="radio" id="acc-rotate" aria-checked="false"><span data-i18n="acc.rotate">Rotate</span></button>
+                    <button type="button" role="radio" id="acc-scale" aria-checked="false"><span data-i18n="acc.scale">Size</span></button>
+                  </div>
+                </div>
+                <div class="acc-row acc-xyz">
+                  <label><span>X</span><input type="number" id="acc-x" step="any" /></label>
+                  <label><span>Y</span><input type="number" id="acc-y" step="any" /></label>
+                  <label><span>Z</span><input type="number" id="acc-z" step="any" /></label>
+                </div>
+              </div>
+              <p class="hint hidden" id="acc-hint"></p>
+            </div>
+          </div>
           <div class="panel color-panel">
             <div id="color-picker" class="cp"></div>
             <button type="button" class="mini" id="btn-replace-color"><span data-i18n="cp.replace">Replace colour…</span></button>

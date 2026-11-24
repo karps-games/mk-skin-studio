@@ -238,7 +238,8 @@ interface LayerSnap {
 type Entry =
   | { kind: "pixels"; doc: Doc; layer: Layer; tiles: Tile[]; bytes: number; selBefore?: Uint8Array | null; selAfter?: Uint8Array | null }
   | { kind: "layers"; doc: Doc; before: LayerSnap[]; after: LayerSnap[]; activeBefore: number; activeAfter: number; bytes: number }
-  | { kind: "group"; doc: Doc; entries: Entry[]; bytes: number };
+  | { kind: "group"; doc: Doc; entries: Entry[]; bytes: number }
+  | { kind: "custom"; doc: Doc; undo: () => void; redo: () => void; bytes: number };
 
 const TILE = 32;
 const MAX_BYTES = 128 << 20;
@@ -327,6 +328,10 @@ export class History {
     return true;
   }
 
+  custom(doc: Doc, undo: () => void, redo: () => void) {
+    this.push({ kind: "custom", doc, undo, redo, bytes: 512 });
+  }
+
   snapLayers(doc: Doc): LayerSnap[] {
     return doc.layers.map((l) => ({ layer: l, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, blend: l.blend, adjust: l.adjust ? { ...l.adjust } : null, mask: l.mask, pixels: l.pixels }));
   }
@@ -344,7 +349,10 @@ export class History {
       for (const x of list) this.apply(x, undo);
       return;
     }
-    if (e.kind === "pixels") {
+    if (e.kind === "custom") {
+      if (undo) e.undo();
+      else e.redo();
+    } else if (e.kind === "pixels") {
       const px = e.layer.pixels!;
       for (const t of e.tiles) {
         const src = undo ? t.before : t.after;
