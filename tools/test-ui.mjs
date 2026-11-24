@@ -50,7 +50,7 @@ function bundle(code){
   facts:facts(),links:[{low:'mario_tx_64',width:64,height:64,highs:[{texture:'mario_all',width:128,height:64}],samples:b64(lowSamples()),mapped:2048,distRel:0.01}],
   eyes:[{frames:[0,1,2,3].map(i=>'mario_eye.'+i),defaultFrame:'mario_eye.0',blink:['mario_eye.0','mario_eye.1','mario_eye.2','mario_eye.1','mario_eye.0']}]};
  b.models[0].vehicle='kart';b.models[0].detail='full';
- b.models[0].bones=2;b.models[0].influences=[[[0,1]],[[1,1]]];b.models[0].anims=[{name:'drift_l',frames:10,looping:true}];
+ b.models[0].bones=2;b.models[0].boneNames=['skl_root','face_1'];b.models[0].bind=[[1,0,0,0,0,1,0,0,0,0,1,0],[1,0,0,0,0,1,0,80,0,0,1,0]];b.models[0].influences=[[[0,1]],[[1,1]]];b.models[0].anims=[{name:'drift_l',frames:10,looping:true}];
  body.matrices=b64(new Int32Array(body.vertices));eye.matrices=b64(new Int32Array(eye.vertices).fill(1));
  if(code==='pc'){
   const low=merge('mario_tx_64',[quad(-30,10,30,70,0,[0,0,0.5,1],[0,0])]);
@@ -103,13 +103,14 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
    pstore[id]={id,name:args.name,created:now(),updated:tick,game:'',gamePath:'',gameId:'',characters:[{code:m.character.code,name:m.character.name,savedAt:tick,edits:[]}],data:{[m.character.code]:f}};persist();return {meta:pmeta(pstore[id]),existing:false};}
   if(cmd==='take_open_requests'){return [];}
   if(cmd==='project_char_read'){const p=pstore[args.id];if(!p)throw 'E:project.unknown';return p.data[args.code]||null;}
-  if(cmd==='project_char_write'){const p=pstore[args.id];const has=!!args.project&&JSON.parse(args.project.manifest).textures.length>0;p.characters=p.characters.filter(c=>c.code!==args.code);delete p.data[args.code];
+  if(cmd==='project_char_write'){const p=pstore[args.id];const mf=args.project?JSON.parse(args.project.manifest):null;const has=!!mf&&(mf.textures.length>0||(mf.accessories||[]).length>0);p.characters=p.characters.filter(c=>c.code!==args.code);delete p.data[args.code];
    if(has){p.data[args.code]=JSON.parse(JSON.stringify(args.project));p.characters.push({code:args.code,name:args.name,savedAt:now(),edits:args.edits});p.characters.sort((a,b)=>ORDER.indexOf(a.code)-ORDER.indexOf(b.code));}p.updated=now();persist();return pmeta(p);}
   if(cmd==='autosave_write'){store['auto:'+args.id+':'+args.code]=args.project;persist();return null;}
   if(cmd==='autosave_read')return window.offerAutosave?store['auto:'+args.id+':'+args.code]||null:null;
   if(cmd==='autosave_clear'){delete store['auto:'+args.id+':'+args.code];persist();return null;}
   if(cmd==='pack_begin'){window.pack=[];return null;}
-  if(cmd==='pack_stage'){window.pack=pack.filter(x=>x.code!==lastLoaded);if(committed.size)pack.push({code:lastLoaded,textures:[...committed].sort()});return committed.size;}
+  if(cmd==='pack_stage'){const acc=(args&&args.accessories)||[];window.pack=pack.filter(x=>x.code!==lastLoaded);if(committed.size||acc.length)pack.push({code:lastLoaded,textures:[...committed].sort(),accessories:acc});return committed.size+acc.length;}
+  if(cmd==='accessory_shapes')return ['sphere','box','cylinder','cone','ring'].map(name=>({name,positions:[-.5,-.5,-.5,.5,-.5,-.5,.5,.5,-.5,-.5,.5,-.5,-.5,-.5,.5,.5,-.5,.5,.5,.5,.5,-.5,.5,.5],normals:[-1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,1,-1,1,1,1,1,-1,1,1].map(v=>v*0.577),uvs:new Array(16).fill(0),indices:[0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7]}));
   if(cmd==='pack_file_name')return args.name.replace(/[^A-Za-z0-9 _.-]/g,' ').trim()+'.zip';
   if(cmd==='build_pack'){if(!pack.length)throw 'E:build.nothing';return {path:args.out,bytes:15192685,files:pack.length*48+1,textures:pack.reduce((a,x)=>a+x.textures.length,0)};}
   if(cmd==='plugin:window|close'||cmd==='plugin:window|destroy'){window.closedWindow=(window.closedWindow||0)+1;return null;}
@@ -848,6 +849,90 @@ async function paint3d() {
   await value("window.noEyes=false");
 }
 
+async function accessories() {
+  await boot("dark", "en", 1280, 720);
+  await toEditor();
+  const T = "acc";
+  const R = `${E}.preview.rig`;
+  await wait(`${R}.ready`);
+  check(`${T} panel shown in 3D with an empty list`, await value(`(()=>{const p=document.getElementById('acc-panel');return !p.classList.contains('hidden') && p.offsetHeight>0 && document.querySelector('#acc-list li.empty')!==null && !document.getElementById('acc-add').disabled;})()`), "");
+  const sig = () => value(`(()=>{const P=${E}.preview;P.render();const gl=P.renderer.getContext();const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight;const px=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);let s=0;for(let i=0;i<px.length;i+=4)s=(s*31+px[i]+px[i+1]*3+px[i+2]*7)>>>0;return s;})()`);
+  const before = await sig();
+  const changes = await value(`${E}.changes`);
+  await value(`(()=>{const s=document.getElementById('acc-add');s.value='cone';s.dispatchEvent(new Event('change'));})()`);
+  await sleep(150);
+  const a = await value(`JSON.stringify(${E}.accessories)`);
+  check(`${T} adding a shape attaches it to the head and selects it`, await value(`${E}.accessories.length===1 && ${E}.accessories[0].shape==='cone' && ${E}.accessories[0].bone==='face_1' && ${E}.accSel===0 && document.querySelectorAll('#acc-list li.on').length===1 && ${R}.attached`), a);
+  check(`${T} the accessory is drawn and marks the character as changed`, (await sig()) !== before && (await value(`${E}.changes`)) > changes && (await value(`${R}.shown(0)`)), "");
+  check(`${T} properties show the bone, colour and position`, await value(`!document.getElementById('acc-props').classList.contains('hidden') && document.getElementById('acc-bone').value==='face_1' && document.getElementById('acc-bone').selectedOptions[0].textContent==='Head' && document.getElementById('acc-color').value==='#dc2828' && Number(document.getElementById('acc-y').value)===${E}.accessories[0].position[1]`), "");
+  await value(`${E}.undo()`);
+  check(`${T} undo removes the accessory`, await value(`${E}.accessories.length===0 && document.querySelector('#acc-list li.empty')!==null`), "");
+  await value(`${E}.redo()`);
+  check(`${T} redo brings it back`, await value(`${E}.accessories.length===1 && ${E}.accessories[0].shape==='cone'`), "");
+  await value(`(()=>{const i=document.getElementById('acc-x');i.value='7';i.dispatchEvent(new Event('change'));})()`);
+  check(`${T} typing a value moves it`, await value(`${E}.accessories[0].position[0]===7 && ${E}.preview.rig.read(0).position[0]===7`), "");
+  await value(`document.getElementById('acc-rotate').click()`);
+  check(`${T} rotate mode shows rotation values`, await value(`${R}.mode==='rotate' && document.getElementById('acc-rotate').getAttribute('aria-checked')==='true' && Number(document.getElementById('acc-z').value)===${E}.accessories[0].rotation[2]`), "");
+  await value(`document.getElementById('acc-translate').click()`);
+  const w0 = await value(`${R}.worldOf(0)`);
+  await value(`(()=>{const s=document.getElementById('acc-bone');s.value='skl_root';s.dispatchEvent(new Event('change'));})()`);
+  const w1 = await value(`${R}.worldOf(0)`);
+  check(`${T} changing the bone moves it there and keeps size and rotation`, (await value(`${E}.accessories[0].bone`)) === "skl_root" && w1.every((v) => Math.abs(v) < 0.05) && Math.abs(w0[1] - w1[1]) > 50 && (await value(`JSON.stringify(${E}.accessories[0].scale)===JSON.stringify(JSON.parse(${JSON.stringify(a)})[0].scale)`)), { w0, w1 });
+  await value(`${E}.undo()`);
+  check(`${T} undo puts it back on the previous bone`, (await value(`${E}.accessories[0].bone`)) === "face_1", "");
+  await value(`${E}.redo()`);
+  const c = await value(`${R}.screenOf(0)`);
+  const p0 = await value(`${E}.accessories[0].position.slice()`);
+  await mouse("mouseMoved", c[0], c[1], "none");
+  await sleep(80);
+  const hovered = await value(`${R}.grab(${c[0]},${c[1]})`);
+  await mouse("mousePressed", c[0], c[1]);
+  for (let k = 1; k <= 6; k++) await mouse("mouseMoved", c[0] + k * 8, c[1] - k * 4);
+  await mouse("mouseReleased", c[0] + 48, c[1] - 24);
+  await sleep(120);
+  const p1 = await value(`${E}.accessories[0].position.slice()`);
+  check(`${T} dragging the handle moves it without painting`, hovered && p1.some((v, i) => Math.abs(v - p0[i]) > 0.5) && (await value(`${E}.history.forDoc(${E}.current)`)) >= 1 && !(await value(`${E}.editedDocs().length`)), { hovered, p0, p1 });
+  await value(`${E}.undo()`);
+  check(`${T} undo puts the handle drag back`, (await value(`${E}.accessories[0].position.slice()`)).every((v, i) => Math.abs(v - p0[i]) < 1e-6), "");
+  await value(`${E}.selectAcc(-1)`);
+  const c2 = await value(`${R}.screenOf(0)`);
+  await mouse("mouseMoved", c2[0], c2[1], "none");
+  await mouse("mousePressed", c2[0], c2[1]);
+  await mouse("mouseReleased", c2[0], c2[1]);
+  await sleep(100);
+  check(`${T} clicking an accessory on the model selects it`, (await value(`${E}.accSel`)) === 0 && !(await value(`${E}.editedDocs().length`)), "");
+  await value(`(()=>{const s=document.getElementById('p3d-anim');s.value='drift_l';s.dispatchEvent(new Event('change'));})()`);
+  await sleep(300);
+  await value(`${E}.togglePlay()`);
+  await sleep(60);
+  const posed = await value(`${R}.worldOf(0)`);
+  check(`${T} it follows its bone in animations and hides the handles`, Math.abs(posed[0] - w1[0]) > 1 && !(await value(`${R}.attached`)), { posed, w1 });
+  await value(`(()=>{const s=document.getElementById('p3d-anim');s.value='';s.dispatchEvent(new Event('change'));})()`);
+  await sleep(100);
+  check(`${T} rest pose restores the handles`, await value(`${R}.attached`), "");
+  await shot("acc-panel-dark-en");
+  const lay = await value(`(()=>{const p=document.getElementById('acc-panel').getBoundingClientRect(),c=document.querySelector('.color-panel').getBoundingClientRect(),b=document.querySelector('.ed-right').getBoundingClientRect();const parts=document.querySelector('.parts-panel').getBoundingClientRect();return [p.bottom<=c.top+1,c.bottom<=b.bottom+1,parts.height>=60,document.getElementById('acc-panel').scrollWidth<=document.getElementById('acc-panel').clientWidth+1];})()`);
+  check(`${T} panel fits the right column at 1280x720`, lay.every(Boolean), lay);
+  await value(`document.querySelector('#acc-list li[data-i="0"] .vis').click()`);
+  check(`${T} hidden accessories are not drawn nor exported`, (await value(`!${R}.shown(0) && ${E}.exportAccessories().length===0`)), "");
+  await value(`document.querySelector('#acc-list li[data-i="0"] .vis').click()`);
+  const ex = await value(`JSON.stringify(${E}.exportAccessories())`);
+  check(`${T} export sends shape, bone, transform and colour only`, JSON.stringify(Object.keys(JSON.parse(ex)[0]).sort()) === JSON.stringify(["bone", "color", "position", "rotation", "scale", "shape"]), ex);
+  check(`${T} edit tags list accessories`, (await value(`${E}.editTags().join()`)) === "accessories", "");
+  const savedAcc = await value(`JSON.stringify(${E}.accessories)`);
+  await click("#btn-proj-save");
+  await wait(`document.getElementById('btn-proj-save').disabled`);
+  await leaveTo("characters");
+  await openChar("mr");
+  await wait(`${E}.accessories.length===1`);
+  check(`${T} saved projects reopen with their accessories`, await value(`${E}.accessories[0].shape==='cone' && JSON.stringify(${E}.accessories)===${JSON.stringify(savedAcc)} && document.querySelectorAll('#acc-list li[data-i]').length===1`), await value(`JSON.stringify(${E}.accessories)`));
+  await value(`document.querySelector('#acc-list li[data-i="0"] .del').click()`);
+  check(`${T} delete removes it`, await value(`${E}.accessories.length===0`), "");
+  await click("#mode-2d");
+  await wait(`${E}.mode==='2d'`);
+  check(`${T} panel is 3D only`, await value(`document.getElementById('acc-panel').offsetHeight===0`), "");
+}
+
 async function animations() {
   await boot("dark", "en", 1280, 720);
   await value(`window.bigEye=true`);
@@ -1358,6 +1443,7 @@ try {
   await sharedOutfits();
   await paint3d();
   await animations();
+  await accessories();
   await functional();
   await controlChrome();
   await sliderDesign();

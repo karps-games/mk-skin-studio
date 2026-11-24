@@ -436,7 +436,8 @@ pub fn char_write(root: &Path, id: &str, code: &str, name: &str, project: Option
     let t = now_ms();
     if let Some(p) = project {
         let v: serde_json::Value = serde_json::from_str(&p.manifest).map_err(|_| "E:project.format")?;
-        let has_work = v.get("textures").and_then(|x| x.as_array()).is_some_and(|a| !a.is_empty());
+        let listed = |key: &str| v.get(key).and_then(|x| x.as_array()).is_some_and(|a| !a.is_empty());
+        let has_work = listed("textures") || listed("accessories");
         if has_work {
             for f in &p.files {
                 if !safe_name(&f.name) {
@@ -445,7 +446,7 @@ pub fn char_write(root: &Path, id: &str, code: &str, name: &str, project: Option
             }
             files.push(ProjectFile { name: format!("{prefix}{MANIFEST}"), data: base64::engine::general_purpose::STANDARD.encode(p.manifest.as_bytes()) });
             files.extend(p.files.iter().map(|f| ProjectFile { name: format!("{prefix}{}", f.name), data: f.data.clone() }));
-            let mut tags: Vec<String> = edits.iter().filter(|e| matches!(e.as_str(), "body" | "eyes" | "bike" | "low")).cloned().collect();
+            let mut tags: Vec<String> = edits.iter().filter(|e| matches!(e.as_str(), "body" | "eyes" | "bike" | "low" | "accessories")).cloned().collect();
             tags.dedup();
             m.characters.push(CharEntry { code: code.into(), name: clean_display_name(name).unwrap_or_else(|_| code.into()), saved_at: t, edits: tags });
         }
@@ -527,6 +528,12 @@ mod tests {
         let m = char_write(&root, &a.id, "pc", "Peach", Some(&empty), &[]).unwrap();
         assert_eq!(m.characters.iter().map(|c| c.code.as_str()).collect::<Vec<_>>(), ["mr"]);
         assert!(char_read(&root, &a.id, "pc").unwrap().is_none());
+        let worn = Project { manifest: r#"{"format":"mkss-project/1.1","character":{"code":"pc","name":"Peach"},"textures":[],"accessories":[{"shape":"cone"}]}"#.into(), files: vec![] };
+        let m = char_write(&root, &a.id, "pc", "Peach", Some(&worn), &["accessories".into()]).unwrap();
+        assert_eq!(m.characters.iter().find(|c| c.code == "pc").unwrap().edits, ["accessories"], "accessories alone are kept");
+        assert!(char_read(&root, &a.id, "pc").unwrap().unwrap().manifest.contains("accessories"));
+        let m = char_write(&root, &a.id, "pc", "Peach", Some(&empty), &[]).unwrap();
+        assert_eq!(m.characters.len(), 1);
         let r = rename(&root, &a.id, "Blue team").unwrap();
         assert_eq!(r.name, "Blue team");
         std::thread::sleep(std::time::Duration::from_millis(5));

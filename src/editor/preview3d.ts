@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { b64ToBytes } from "./png";
+import { AccessoryRig } from "./accessories";
 
 export interface SubData {
   material: string;
@@ -33,6 +34,8 @@ export interface ModelData {
   bboxMax: [number, number, number];
   submeshes: SubData[];
   bones?: number;
+  boneNames?: string[];
+  bind?: number[][];
   influences?: [number, number][][];
   anims?: AnimInfo[];
 }
@@ -177,6 +180,7 @@ export class Preview3D {
   onHover: (r: PickResult | null) => void = () => {};
   uploads = 0;
   posed = false;
+  rig: AccessoryRig | null = null;
   private rest = new WeakMap<SubData, { pos: Float32Array; nrm: Float32Array | null; mtx: Int32Array | null }>();
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -197,6 +201,7 @@ export class Preview3D {
     this.camera.add(sun);
     this.scene.add(this.camera);
     this.scene.add(this.group);
+    this.rig = new AccessoryRig(this.camera, canvas, this.scene, () => this.request());
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = false;
     this.controls.enableRotate = false;
@@ -252,7 +257,7 @@ export class Preview3D {
     return null;
   }
   private navDown(e: PointerEvent) {
-    if (!this.controls || !this.subs.length) return;
+    if (!this.controls || !this.subs.length || (e.button === 0 && this.rig?.grab(e.clientX, e.clientY))) return;
     const mode = this.navFor(e);
     if (!mode) return;
     if (this.nav && this.nav.id === e.pointerId) {
@@ -343,6 +348,7 @@ export class Preview3D {
       this.setMirror(null);
     }
     this.setHighlight(null, false);
+    this.rig?.setEditable(on);
     this.syncCursor();
   }
   reparented() {
@@ -526,6 +532,7 @@ export class Preview3D {
     for (const t of this.textures.values()) t.dispose();
     this.textures.clear();
     this.model = null;
+    this.rig?.setModel(null);
     this.request();
   }
 
@@ -555,6 +562,7 @@ export class Preview3D {
       this.group.add(mesh);
       this.subs.push({ mesh, data: d, parts: u16(d.parts), index, texName, pos: g.getAttribute("position").array as Float32Array, uv: g.getAttribute("uv").array as Float32Array, nrm: (g.getAttribute("normal")?.array as Float32Array | undefined) ?? null });
     }
+    this.rig?.setModel(model);
     const lo = new THREE.Vector3(...model.bboxMin), hi = new THREE.Vector3(...model.bboxMax);
     this.center = lo.clone().add(hi).multiplyScalar(0.5);
     this.radius = Math.max(1, hi.distanceTo(lo) / 2);
@@ -616,6 +624,7 @@ export class Preview3D {
     }
     for (const m of [this.highlight, this.selectedHL]) if (m) m.geometry.getAttribute("position").needsUpdate = true;
     this.posed = !!own;
+    this.rig?.pose(own && this.model && model!.submeshes[0] === this.model.submeshes[0] ? mats : null);
     this.request();
   }
 

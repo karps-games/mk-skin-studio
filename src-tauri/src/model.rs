@@ -63,6 +63,8 @@ pub struct MeshView {
     pub bbox_max: [f32; 3],
     pub submeshes: Vec<SubView>,
     pub bones: usize,
+    pub bone_names: Vec<String>,
+    pub bind: Vec<[f32; 12]>,
     pub influences: Vec<Vec<(u32, f32)>>,
     pub anims: Vec<AnimView>,
 }
@@ -296,6 +298,8 @@ pub fn bundle_with(code: &str, sources: &[ModelSource], textures: &[(String, u32
                     })
                     .collect(),
                 bones: m.bones.len(),
+                bone_names: m.bones.iter().map(|b| b.name.clone()).collect(),
+                bind: m.bones.iter().map(|b| b.model).collect(),
                 influences: m.influences.clone(),
                 anims: src.anims.iter().map(|a| AnimView { name: a.name.clone(), frames: a.frames, looping: a.looping }).collect(),
             }

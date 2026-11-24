@@ -1,5 +1,6 @@
 import type { Adjust, Blend, Doc, Layer } from "./doc";
 import { touch } from "./doc";
+import { clean, type Accessory } from "./accessories";
 import { b64ToBytes, bytesToB64, decodePng, encodePng } from "./png";
 
 export const FORMAT = "mkss-project/1.1";
@@ -24,7 +25,7 @@ interface LayerMeta {
   source?: { name: string; sha256: string };
 }
 interface TextureMeta { name: string; sha256: string; width: number; height: number; active: number; layers: LayerMeta[] }
-export interface Manifest { format: string; tool: string; toolVersion: string; character: { code: string; name: string }; savedAt: string; textures: TextureMeta[] }
+export interface Manifest { format: string; tool: string; toolVersion: string; character: { code: string; name: string }; savedAt: string; textures: TextureMeta[]; accessories?: Accessory[] }
 
 const safe = (s: string) => s.replace(/[^A-Za-z0-9_.-]/g, "_");
 
@@ -41,7 +42,7 @@ export function hasWork(d: Doc) {
   return d.layers.length > 2;
 }
 
-export async function serialize(docs: Iterable<Doc>, character: { code: string; name: string }, version: string): Promise<Project> {
+export async function serialize(docs: Iterable<Doc>, character: { code: string; name: string }, version: string, accessories: Accessory[] = []): Promise<Project> {
   const files: ProjectFile[] = [];
   const textures: TextureMeta[] = [];
   for (const d of docs) {
@@ -84,7 +85,12 @@ export async function serialize(docs: Iterable<Doc>, character: { code: string; 
     textures.push({ name: d.name, sha256: d.sha256, width: d.w, height: d.h, active: d.active, layers });
   }
   const manifest: Manifest = { format: FORMAT, tool: "MK Skin Studio", toolVersion: version, character, savedAt: new Date().toISOString(), textures };
+  if (accessories.length) manifest.accessories = clean(accessories);
   return { manifest: JSON.stringify(manifest), files };
+}
+
+export function accessoriesOf(p: Project): Accessory[] {
+  return clean(parseManifest(p).accessories);
 }
 
 export function parseManifest(p: Project): Manifest {
