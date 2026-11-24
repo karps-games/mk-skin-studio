@@ -1,3 +1,4 @@
+pub mod accessory;
 pub mod brres;
 pub mod budget;
 pub mod chr0;
@@ -55,6 +56,7 @@ struct Staged {
     ch: game::Character,
     textures: Vec<skin::TextureInfo>,
     edits: HashMap<String, Edit>,
+    accessories: Vec<accessory::Accessory>,
 }
 
 #[derive(Default)]
@@ -346,16 +348,25 @@ fn pack_begin(state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn pack_stage(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+fn pack_stage(state: tauri::State<'_, AppState>, accessories: Option<Vec<accessory::Accessory>>) -> Result<usize, String> {
     let mut s = lock(&state);
     let cur = s.current.as_ref().ok_or("E:char.none")?;
-    let staged = Staged { ch: cur.ch.clone(), textures: cur.textures.clone(), edits: cur.edits.clone() };
-    let n = staged.edits.len();
+    let accessories = accessories.unwrap_or_default();
+    if accessories.len() > accessory::LIMIT || accessories.iter().any(|a| accessory::shape(&a.shape).is_none()) {
+        return Err("E:project.format".into());
+    }
+    let staged = Staged { ch: cur.ch.clone(), textures: cur.textures.clone(), edits: cur.edits.clone(), accessories };
+    let n = staged.edits.len() + staged.accessories.len();
     s.pack.retain(|p| p.ch.code != staged.ch.code);
     if n > 0 {
         s.pack.push(staged);
     }
     Ok(n)
+}
+
+#[tauri::command]
+fn accessory_shapes() -> Vec<accessory::ShapeView> {
+    accessory::shapes()
 }
 
 #[tauri::command]
@@ -374,8 +385,8 @@ async fn build_pack(app: tauri::AppHandle, name: String, out: String) -> Result<
         let order = |c: &str| game::CHARACTERS.iter().position(|(k, _)| *k == c).unwrap_or(usize::MAX);
         let mut staged: Vec<&Staged> = s.pack.iter().collect();
         staged.sort_by_key(|p| order(&p.ch.code));
-        let chars: Vec<(game::Character, HashMap<String, Rgba8>)> =
-            staged.iter().map(|p| (p.ch.clone(), p.edits.iter().map(|(n, e)| (n.clone(), e.image.clone())).collect())).collect();
+        let chars: Vec<(game::Character, HashMap<String, Rgba8>, Vec<accessory::Accessory>)> =
+            staged.iter().map(|p| (p.ch.clone(), p.edits.iter().map(|(n, e)| (n.clone(), e.image.clone())).collect(), p.accessories.clone())).collect();
         let records: Vec<export::CharacterRecord> =
             staged.iter().map(|p| export::CharacterRecord { code: p.ch.code.clone(), name: p.ch.name.clone(), edits: edit_records(&p.textures, &p.edits) }).collect();
         (s.root.clone().ok_or("E:game.none")?, chars, records)
@@ -570,6 +581,7 @@ pub fn run() {
             export_original,
             pack_begin,
             pack_stage,
+            accessory_shapes,
             pack_file_name,
             build_pack,
             projects_list,

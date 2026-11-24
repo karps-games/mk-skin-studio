@@ -1,4 +1,5 @@
-use crate::{brres, game, texture, texture::Rgba8, u8arc, yaz0};
+use crate::accessory::{self, Accessory, Pose};
+use crate::{brres, budget, game, texture, texture::Rgba8, u8arc, yaz0};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -160,54 +161,89 @@ pub fn build(
     edited: &HashMap<String, Rgba8>,
     progress: impl Fn(usize, usize, &str) + Sync,
 ) -> Result<Vec<BuiltFile>, String> {
-    build_pack(root, &[(ch.clone(), edited.clone())], progress)
+    build_pack(root, &[(ch.clone(), edited.clone(), Vec::new())], progress)
+}
+
+fn with_file(rel: &str) -> impl Fn(String) -> String + '_ {
+    move |e| if e.contains('|') { e } else { format!("{e}|file={rel}") }
 }
 
 pub fn build_pack(
     root: &Path,
-    chars: &[(game::Character, HashMap<String, Rgba8>)],
+    chars: &[(game::Character, HashMap<String, Rgba8>, Vec<Accessory>)],
     progress: impl Fn(usize, usize, &str) + Sync,
 ) -> Result<Vec<BuiltFile>, String> {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex;
-    if chars.iter().all(|(_, e)| e.is_empty()) {
+    if chars.iter().all(|(_, e, a)| e.is_empty() && a.is_empty()) {
         return Err("E:build.nothing".into());
     }
     let mut jobs: Vec<(Option<usize>, String)> = Vec::new();
-    for (ci, (ch, edited)) in chars.iter().enumerate() {
-        if !edited.is_empty() {
+    for (ci, (ch, edited, acc)) in chars.iter().enumerate() {
+        if !edited.is_empty() || !acc.is_empty() {
             jobs.extend(ch.files.iter().map(|f| (Some(ci), f.clone())));
         }
     }
     jobs.push((None, game::DRIVER_SZS.to_string()));
     let total = jobs.len();
     type Cache = HashMap<(String, u32, u32, u32, u32), Vec<u8>>;
+    let poses: Mutex<HashMap<(usize, String), Option<Pose>>> = Mutex::new(HashMap::new());
+    let pose_of = |ci: usize, rel: &str| -> Option<Pose> {
+        let full = accessory::full_file(rel);
+        let mut cache = poses.lock().unwrap();
+        cache
+            .entry((ci, full.clone()))
+            .or_insert_with(|| {
+                let code = &chars[ci].0.code;
+                let one = budget::driver_brres(root, &full, code).ok()?;
+                let four = budget::driver_brres(root, &full.replace(".szs", "_4.szs"), code).ok()?;
+                accessory::driving_pose(&one, &four).ok().map(|p| p.0)
+            })
+            .clone()
+    };
     let race = |ci: usize, rel: &str, caches: &mut HashMap<usize, Cache>| -> Result<Option<BuiltFile>, String> {
         let mut raw = read_archive(root, rel)?;
         let before = raw.len();
-        let n = patch_archive(&mut raw, DRIVER_MEMBER, &chars[ci].1, caches.entry(ci).or_default()).map_err(|e| if e.contains('|') { e } else { format!("{e}|file={rel}") })?;
+        let n = patch_archive(&mut raw, DRIVER_MEMBER, &chars[ci].1, caches.entry(ci).or_default()).map_err(with_file(rel))?;
         if raw.len() != before {
             return Err(format!("E:build.size|file={rel}"));
         }
-        Ok(if n > 0 { Some(BuiltFile { path: rel.to_string(), data: yaz0::encode(&raw)?, textures: n }) } else { None })
+        let acc = &chars[ci].2;
+        if !acc.is_empty() {
+            let pose = pose_of(ci, rel);
+            let arc = u8arc::parse(&raw).map_err(with_file(rel))?;
+            let e = arc.find(DRIVER_MEMBER).ok_or_else(|| format!("E:file.format|file={rel}"))?;
+            let out = accessory::decorate(&raw[e.offset..e.offset + e.size], acc, pose.as_ref()).map_err(with_file(rel))?;
+            raw = accessory::replace_member(&raw, DRIVER_MEMBER, &out).map_err(with_file(rel))?;
+        }
+        Ok(if n > 0 || !acc.is_empty() { Some(BuiltFile { path: rel.to_string(), data: yaz0::encode(&raw)?, textures: n }) } else { None })
     };
     let menu = |rel: &str| -> Result<Option<BuiltFile>, String> {
         let mut raw = read_archive(root, rel)?;
         let before = raw.len();
         let mut n = 0;
-        for (ch, edited) in chars {
+        for (ch, edited, _) in chars {
             if edited.is_empty() {
                 continue;
             }
-            let member = game::menu_member(&u8arc::parse(&raw).map_err(|e| format!("{e}|file={rel}"))?, &ch.code);
+            let member = game::menu_member(&u8arc::parse(&raw).map_err(with_file(rel))?, &ch.code);
             if let Some(m) = member {
-                n += patch_archive(&mut raw, &m, edited, &mut HashMap::new()).map_err(|e| if e.contains('|') { e } else { format!("{e}|file={rel}") })?;
+                n += patch_archive(&mut raw, &m, edited, &mut HashMap::new()).map_err(with_file(rel))?;
             }
         }
         if raw.len() != before {
             return Err(format!("E:build.size|file={rel}"));
         }
-        Ok(if n > 0 { Some(BuiltFile { path: rel.to_string(), data: yaz0::encode(&raw)?, textures: n }) } else { None })
+        let mut decorated = false;
+        for (ch, _, acc) in chars.iter().filter(|c| !c.2.is_empty()) {
+            let arc = u8arc::parse(&raw).map_err(with_file(rel))?;
+            let Some(m) = game::menu_member(&arc, &ch.code) else { continue };
+            let e = arc.find(&m).ok_or_else(|| format!("E:file.format|file={rel}"))?;
+            let out = accessory::decorate(&raw[e.offset..e.offset + e.size], acc, None).map_err(with_file(rel))?;
+            raw = accessory::replace_member(&raw, &m, &out).map_err(with_file(rel))?;
+            decorated = true;
+        }
+        Ok(if n > 0 || decorated { Some(BuiltFile { path: rel.to_string(), data: yaz0::encode(&raw)?, textures: n }) } else { None })
     };
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);

@@ -397,14 +397,14 @@ fn real_pack_merges_driver_szs_for_three_characters() {
         let img = texture::recolor(&found.originals[&tex], texture::Recolor { hue, saturation: 40.0, brightness: 0.0 });
         members.insert(code, (game::menu_member(&arc_before, code).unwrap(), tex.clone()));
         hues.insert(code, img.clone());
-        chars.push((ch, HashMap::from([(tex, img)])));
+        chars.push((ch, HashMap::from([(tex, img)]), Vec::new()));
     }
     println!("pack members: {:?}", members.iter().map(|(c, (m, t))| format!("{c}:{m}/{t}")).collect::<Vec<_>>());
     let t0 = std::time::Instant::now();
     let built = skin::build_pack(&src, &chars, |_, _, _| {}).unwrap();
     println!("build_pack: {} files in {:?}", built.len(), t0.elapsed());
     let mut expected = Vec::new();
-    for (ch, edits) in &chars {
+    for (ch, edits, _) in &chars {
         for f in &ch.files {
             let raw = skin::read_archive(&src, f).unwrap();
             if driver(&raw).1.iter().any(|t| edits.contains_key(&t.name)) {
@@ -418,7 +418,7 @@ fn real_pack_merges_driver_szs_for_three_characters() {
     got.sort();
     expected.sort();
     assert_eq!(got, expected, "race files of the three characters that contain the edit");
-    for (ch, _) in &chars {
+    for (ch, _, _) in &chars {
         assert!(race.iter().any(|b| ch.files.contains(&b.path)), "{}: no race file", ch.code);
     }
     let drivers: Vec<&skin::BuiltFile> = built.iter().filter(|b| b.path == game::DRIVER_SZS).collect();
@@ -459,7 +459,7 @@ fn real_pack_merges_driver_szs_for_three_characters() {
     assert_eq!(unchanged, arc_before.files.len() - 3);
     let records = chars
         .iter()
-        .map(|(c, e)| export::CharacterRecord {
+        .map(|(c, e, _)| export::CharacterRecord {
             code: c.code.clone(),
             name: c.name.clone(),
             edits: e.keys().map(|n| export::EditRecord { texture: n.clone(), width: 0, height: 0, format: String::new(), kind: "layers".into(), summary: Default::default() }).collect(),

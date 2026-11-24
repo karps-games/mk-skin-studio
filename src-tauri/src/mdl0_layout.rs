@@ -462,10 +462,18 @@ impl Layout {
                 mesh.normals.len()
             }
             4 => {
-                if comp != 1 || ty != 5 {
-                    return Err(unsupported());
+                for &[r, g, b, a] in &mesh.colors {
+                    let (r, g, b, a) = (r as u32, g as u32, b as u32, a as u32);
+                    match ty {
+                        0 => out.extend_from_slice(&(((r >> 3) << 11 | (g >> 2) << 5 | b >> 3) as u16).to_be_bytes()),
+                        1 => out.extend_from_slice(&[r as u8, g as u8, b as u8]),
+                        2 => out.extend_from_slice(&[r as u8, g as u8, b as u8, 0xFF]),
+                        3 => out.extend_from_slice(&(((r >> 4) << 12 | (g >> 4) << 8 | (b >> 4) << 4 | a >> 4) as u16).to_be_bytes()),
+                        4 => out.extend_from_slice(&((r >> 2) << 18 | (g >> 2) << 12 | (b >> 2) << 6 | a >> 2).to_be_bytes()[1..]),
+                        5 => out.extend_from_slice(&[r as u8, g as u8, b as u8, a as u8]),
+                        _ => return Err(unsupported()),
+                    }
                 }
-                out.extend(mesh.colors.iter().flatten());
                 mesh.colors.len()
             }
             _ => {
@@ -499,13 +507,38 @@ impl Layout {
         Ok((new_id, div))
     }
 
-    pub fn add_rigid_mesh(&mut self, template: &str, name: &str, mesh: &Mesh, material: Option<u16>) -> Result<(), String> {
+    pub fn bone_matrix(&self, name: &str) -> Option<u32> {
+        let info = self.kinds.iter().position(|k| *k == Kind::Info)?;
+        let lut = self.target(info, 0x24)?;
+        let lb = &self.chunks[lut.chunk];
+        let c = self.items(1).into_iter().find(|x| x.0 == name)?.1;
+        let id = be32(&self.chunks[c], 0x0C).ok()?;
+        let count = be32(lb, lut.off).ok()?;
+        (0..count).find(|&i| be32(lb, lut.off + 4 + i as usize * 4).ok() == Some(id))
+    }
+
+    pub fn shapes(&self) -> Vec<(String, u32, Option<String>)> {
+        let mats = self.items(8);
+        let mut out = Vec::new();
+        for (name, c) in self.items(10) {
+            let b = &self.chunks[c];
+            let (Ok(verts), Ok(id)) = (be32(b, 0x40), be32(b, 0x3C)) else { continue };
+            let mat = self.draws(id as u16).ok().and_then(|d| d.into_iter().find_map(|x| x.2)).and_then(|[m, _, _]| {
+                mats.iter().find(|x| be32(&self.chunks[x.1], 0x0C).ok() == Some(m as u32)).map(|x| x.0.clone())
+            });
+            out.push((name, verts, mat));
+        }
+        out
+    }
+
+    pub fn add_rigid_mesh(&mut self, template: &str, name: &str, mesh: &Mesh, material: Option<u16>, matrix: Option<u32>) -> Result<(), String> {
         let shapes = self.items(10);
         let ts = shapes.iter().find(|x| x.0 == template).map(|x| x.1).ok_or_else(unsupported)?;
         let t = self.chunks[ts].clone();
         let (lo, hi) = (be32(&t, 0x0C)?, be32(&t, 0x10)?);
         let attr = |v: u32, shift: u32| (v >> shift) & 3;
-        if (be32(&t, 8)? as i32) < 0 || lo & 0x1FF != 0 || attr(lo, 15) != 0 || hi >> 2 != 0 || attr(lo, 9) == 0 {
+        let skinned = (be32(&t, 8)? as i32) < 0;
+        if (skinned && matrix.is_none()) || attr(lo, 15) != 0 || hi >> 2 != 0 || attr(lo, 9) == 0 {
             return Err(unsupported());
         }
         let used: Vec<(usize, usize, u32)> = [(2, 0x48, attr(lo, 9)), (3, 0x4A, attr(lo, 11)), (4, 0x4C, attr(lo, 13)), (5, 0x50, attr(hi, 0))]
@@ -517,7 +550,8 @@ impl Layout {
         }
         let n = mesh.positions.len();
         let sizes = [(3, mesh.normals.len()), (4, mesh.colors.len()), (5, mesh.uvs.len())];
-        if n == 0 || n > 255 || used.iter().any(|u| sizes.iter().any(|s| s.0 == u.0 && s.1 != n)) {
+        let limit = if used.iter().any(|u| u.2 == 2) { 256 } else { 65536 };
+        if n == 0 || n > limit || used.iter().any(|u| sizes.iter().any(|s| s.0 == u.0 && s.1 != n)) {
             return Err(unsupported());
         }
         let mut ids = Vec::new();
@@ -536,7 +570,22 @@ impl Layout {
         self.rename(c, 0x38, name);
         let dl = self.links.iter().find(|l| l[0] == Loc { chunk: c, off: 0x2C }).map(|l| l[2].off).ok_or_else(unsupported)?;
         let setup = self.links.iter().find(|l| l[0] == Loc { chunk: c, off: 0x20 }).map(|l| l[2].off).ok_or_else(unsupported)?;
+        let list = self.target(c, 0x64);
         let b = &mut self.chunks[c];
+        if let Some(m) = matrix {
+            set32(b, 8, m);
+        }
+        if lo & 0x1FF != 0 {
+            set32(b, 0x0C, lo & !0x1FF);
+            let flags = be32(b, 0x30)? & !0x1FF;
+            set32(b, 0x30, flags);
+            let at = (setup..dl.saturating_sub(5)).find(|&p| b[p] == 0x08 && b[p + 1] == 0x50).ok_or_else(unsupported)?;
+            let v = be32(b, at + 2)? & !0x1FF;
+            set32(b, at + 2, v);
+            if let Some(l) = list.filter(|l| l.chunk == c) {
+                set32(b, l.off, 0);
+            }
+        }
         let vat = b[dl] & 7;
         let reg = (setup..dl.saturating_sub(5)).find(|&p| b[p] == 0x08 && b[p + 1] == 0x70 | vat).ok_or_else(unsupported)?;
         let v = (be32(b, reg + 2)? & !(0x1F << 4)) | (pos_div << 4);
@@ -849,7 +898,7 @@ mod tests {
             let size = (maxx - minx).max(maxz - minz) * 0.45;
             let center = [(minx + maxx) / 2.0, top + size * 0.4, (minz + maxz) / 2.0];
             let mesh = box_mesh(&inv, center, size);
-            l.add_rigid_mesh("polygon1", "box", &mesh, None).unwrap_or_else(|e| panic!("{name} {e}"));
+            l.add_rigid_mesh("polygon1", "box", &mesh, None, None).unwrap_or_else(|e| panic!("{name} {e}"));
             l.extend_bounds(center.map(|c| c - size), center.map(|c| c + size));
             let (bytes, refs) = l.write();
             m.bytes = bytes;
@@ -969,7 +1018,7 @@ mod tests {
             let (center, size) = anchor(&all);
             let (_, inv) = l.bone(&bone).unwrap();
             let id = l.add_material(&mat, "accessory", "accessory").unwrap_or_else(|e| panic!("{label} {} {e}", m.name));
-            l.add_rigid_mesh(&shape, "accessory", &ring_mesh(&inv, center, size), Some(id)).unwrap_or_else(|e| panic!("{label} {} {e}", m.name));
+            l.add_rigid_mesh(&shape, "accessory", &ring_mesh(&inv, center, size), Some(id), None).unwrap_or_else(|e| panic!("{label} {} {e}", m.name));
             l.extend_bounds(center.map(|c| c - size), center.map(|c| c + size));
             let (bytes, refs) = l.write();
             m.bytes = bytes;
