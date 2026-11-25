@@ -202,6 +202,7 @@ export class Preview3D {
     this.scene.add(this.camera);
     this.scene.add(this.group);
     this.rig = new AccessoryRig(this.camera, canvas, this.scene, () => this.request());
+    this.rig.nearest = this.nearest;
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = false;
     this.controls.enableRotate = false;
@@ -348,7 +349,6 @@ export class Preview3D {
       this.setMirror(null);
     }
     this.setHighlight(null, false);
-    this.rig?.setEditable(on);
     this.syncCursor();
   }
   reparented() {
@@ -357,7 +357,8 @@ export class Preview3D {
     this.resize();
   }
   get subMeshes(): readonly Sub[] {
-    return this.subs;
+    const extra = this.rig?.surfaces() ?? [];
+    return extra.length ? [...this.subs, ...extra] : this.subs;
   }
   get cam() {
     return this.camera;
@@ -375,10 +376,11 @@ export class Preview3D {
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
-    const hits = ray.intersectObjects(this.subs.map((s) => s.mesh), false);
+    const all = this.subMeshes;
+    const hits = ray.intersectObjects(all.map((s) => s.mesh), false);
     for (const h of hits) {
-      const si = this.subs.findIndex((x) => x.mesh === h.object);
-      const s = this.subs[si];
+      const si = all.findIndex((x) => x.mesh === h.object);
+      const s = all[si];
       if (!s || !s.texName || h.faceIndex == null) continue;
       const f = h.faceIndex;
       const a = s.index[f * 3], b = s.index[f * 3 + 1], c = s.index[f * 3 + 2];
@@ -507,6 +509,7 @@ export class Preview3D {
   }
   setNearest(v: boolean) {
     this.nearest = v;
+    this.rig?.setNearest(v);
     for (const t of this.textures.values()) {
       t.magFilter = v ? THREE.NearestFilter : THREE.LinearFilter;
       t.minFilter = v ? THREE.NearestFilter : THREE.LinearMipmapLinearFilter;

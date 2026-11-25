@@ -469,6 +469,8 @@ const en = {
   "acc.empty": "No accessories yet. Add a shape and drag its handles on the model.",
   "acc.noSkeleton": "Accessories are edited on the full detail model.",
   "acc.limit": "Up to {n} accessories per character.",
+  "acc.surface": "Accessory: {name}",
+  "acc.toolHint": "Selection tool (W) moves it. Paint tools paint it.",
   "acc.otherOutfit": "This accessory is attached to a bone this outfit does not have.",
   "tag.accessories": "Accessories",
   "shape.sphere": "Sphere",

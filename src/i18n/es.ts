@@ -471,6 +471,8 @@ const es: Dict = {
   "acc.empty": "Aún no hay accesorios. Añade una forma y arrastra sus controles sobre el modelo.",
   "acc.noSkeleton": "Los accesorios se editan en el modelo de detalle completo.",
   "acc.limit": "Hasta {n} accesorios por personaje.",
+  "acc.surface": "Accesorio: {name}",
+  "acc.toolHint": "La herramienta de selección (W) lo mueve. Las de pintura lo pintan.",
   "acc.otherOutfit": "Este accesorio está unido a un hueso que este traje no tiene.",
   "tag.accessories": "Accesorios",
   "shape.sphere": "Esfera",

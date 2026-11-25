@@ -352,7 +352,7 @@ fn pack_stage(state: tauri::State<'_, AppState>, accessories: Option<Vec<accesso
     let mut s = lock(&state);
     let cur = s.current.as_ref().ok_or("E:char.none")?;
     let accessories = accessories.unwrap_or_default();
-    if accessories.len() > accessory::LIMIT || accessories.iter().any(|a| accessory::shape(&a.shape).is_none()) {
+    if accessories.len() > accessory::LIMIT || accessories.iter().any(|a| accessory::shape(&a.shape).is_none() || a.texture.as_ref().is_some_and(|t| t.len() > 1 << 20)) {
         return Err("E:project.format".into());
     }
     let staged = Staged { ch: cur.ch.clone(), textures: cur.textures.clone(), edits: cur.edits.clone(), accessories };

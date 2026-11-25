@@ -4,7 +4,7 @@ import { applyStatic, errText, t, type Key } from "../i18n";
 import { CanvasView, isTyping } from "./canvasview";
 import { ColorPicker } from "./colorpicker";
 import { BLENDS, History, activeLayer, baseEdited, composite, identityAdjust, isEdited, newDoc, touch, type Blend, type Doc, type Layer } from "./doc";
-import { BONES, LIMIT, SHAPES, baseBone, boneOrigin, clean, placeAt, rebind, type Accessory, type GizmoMode, type Shape, type ShapeView, type Vec3 } from "./accessories";
+import { BONES, LIMIT, SHAPES, TEX, accDoc, accIdOf, isAccDoc, newAccId, baseBone, boneOrigin, clean, placeAt, rebind, type Accessory, type GizmoMode, type Shape, type ShapeView, type Vec3 } from "./accessories";
 import { icon } from "./icons";
 import { applyStroke, fillMask, lineStroke, maskBBox, maskFromRuns, maskOutline, palette, rectStroke, regionMask, replaceColor, hex, Stroke, type BrushOpts, type PaintMode, type RGBA } from "./paint";
 import { decodeDataUrl, pngDataUrl } from "./png";
@@ -143,6 +143,10 @@ export class Editor {
     };
     this.preview.onNavStart = () => this.cancelStroke3d();
     if (this.preview.rig) {
+      this.preview.rig.source = (id) => {
+        const d = this.docs.get(accDoc(id));
+        return d ? { w: d.w, h: d.h, data: composite(d) } : null;
+      };
       this.preview.rig.onEdit = (i, _before, after) => this.editAcc((list) => (list[i] = after));
       this.preview.rig.onLive = (_i, a) => this.renderAccFields(a);
     }
@@ -362,7 +366,7 @@ export class Editor {
     const bike = this.hasBikeOutfit() ? this.outfitTextures("bike") : null;
     const kart = bike ? this.outfitTextures("kart") : null;
     for (const d of this.docs.values()) {
-      if (!isEdited(d)) continue;
+      if (!isEdited(d) || isAccDoc(d.name)) continue;
       const x = this.character?.textures.find((tx) => tx.name === d.name);
       if (this.eyeGroupOf(d.name) || x?.eye) tags.add("eyes");
       else if (this.fact(d.name)?.role === "low" || this.linkOf(d.name)) tags.add("low");
@@ -407,7 +411,7 @@ export class Editor {
 
   private showModelFor(name: string) {
     if (!this.bundle || !this.preview.ok) return;
-    if (this.mode === "3d" && this.preview.current) {
+    if ((this.mode === "3d" || isAccDoc(name)) && this.preview.current) {
       this.refreshEyePreview();
       return;
     }
@@ -520,6 +524,7 @@ export class Editor {
     if (tool !== "hand") this.view.canvas.style.cursor = "";
     this.preview.setHand(tool === "hand");
     this.preview.rightPicks = tool === "picker";
+    this.preview.rig?.setEditable(this.mode === "3d" && tool === "wand");
     this.view.request();
   }
 
@@ -1306,6 +1311,7 @@ export class Editor {
     return this.bundle?.eyes?.find((e) => e.frames.includes(name));
   }
   surfaceName(name: string): string {
+    if (isAccDoc(name)) return t("acc.surface", { name: this.accessories.find((a) => accDoc(a.id) === name)?.name ?? "" });
     const f = this.fact(name);
     const x = this.character?.textures.find((tx) => tx.name === name);
     const role = f?.role ?? (x?.eye ? "eye" : "other");
@@ -1399,6 +1405,7 @@ export class Editor {
     return false;
   }
   private uploadDoc(d: Doc) {
+    if (isAccDoc(d.name)) return this.preview.rig?.updateTexture(accIdOf(d.name));
     const g = this.eyeGroupOf(d.name);
     if (!g || (this.mode === "2d" ? d === this.current || d.name === this.displayedFrame(g) : d.name === this.displayedFrame(g))) this.preview.update(d.name);
     const follow = new Set([d.name, ...(this.bundle?.shares ?? []).filter((l) => l.highs[0].texture === d.name).map((l) => l.low)]);
@@ -1598,10 +1605,41 @@ export class Editor {
     this.accSel = -1;
     this.syncAcc();
   }
-  exportAccessories() {
-    return this.accessories.filter((a) => !a.hidden).map(({ shape, bone, position, rotation, scale, color }) => ({ shape, bone: baseBone(bone), position, rotation, scale, color }));
+  async exportAccessories() {
+    const out = [];
+    for (const { id, shape, bone, position, rotation, scale, color, hidden } of this.accessories) {
+      if (hidden) continue;
+      const d = this.docs.get(accDoc(id));
+      const texture = d && isEdited(d) ? await pngDataUrl(composite(d), d.w, d.h) : undefined;
+      out.push({ shape, bone: baseBone(bone), position, rotation, scale, color, ...(texture ? { texture } : {}) });
+    }
+    return out;
+  }
+  private accColorDoc(id: string, color: Vec3) {
+    const name = accDoc(id);
+    const sha = `color:${color.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+    const fill = new Uint8ClampedArray(TEX * TEX * 4);
+    for (let i = 0; i < fill.length; i += 4) fill.set([color[0], color[1], color[2], 255], i);
+    let d = this.docs.get(name);
+    if (!d) {
+      d = newDoc(name, TEX, TEX, fill, sha);
+      for (const l of d.layers) l.name = l.base ? t("lay.base") : t("lay.layer", { n: 1 });
+      this.docs.set(name, d);
+      return;
+    }
+    if (d.sha256 === sha) return;
+    const old = d.original;
+    const base = d.layers.find((l) => l.base);
+    if (base?.pixels) for (let i = 0; i < base.pixels.length; i += 4) if (base.pixels[i] === old[i] && base.pixels[i + 1] === old[i + 1] && base.pixels[i + 2] === old[i + 2] && base.pixels[i + 3] === old[i + 3]) base.pixels.set(fill.subarray(i, i + 4), i);
+    d.original = fill;
+    d.sha256 = sha;
+    this.thumbs.delete(name);
+    this.changed(d);
   }
   private syncAcc() {
+    for (const a of this.accessories) this.accColorDoc(a.id, a.color);
+    const live = new Set(this.accessories.map((a) => accDoc(a.id)));
+    if (this.current && isAccDoc(this.current.name) && !live.has(this.current.name) && this.character?.textures[0]) this.select(this.character.textures[0].name);
     this.preview.rig?.set(this.accessories, this.accSel);
     this.renderAccPanel();
   }
@@ -1621,18 +1659,11 @@ export class Editor {
     this.changed(d);
     this.syncAcc();
   }
-  selectAcc(i: number) {
+  selectAcc(i: number, handles = true) {
     this.accSel = i;
-    this.syncAcc();
-  }
-  private pickAccessory(x: number, y: number) {
-    const rig = this.preview.rig;
-    const a = rig?.pick(x, y);
-    if (!rig || !a || a.index < 0) return false;
-    const hit = this.preview.hitAt(x, y);
-    if (hit && hit.distance < a.distance) return false;
-    this.selectAcc(a.index);
-    return true;
+    this.preview.rig?.select(i);
+    if (handles && i >= 0 && this.mode === "3d" && this.tool !== "wand") this.setTool("wand");
+    this.renderAccPanel();
   }
   private accModel(): ModelData | null {
     const m = this.preview.current;
@@ -1655,11 +1686,14 @@ export class Editor {
     const size = Math.max(1, Math.round((m.bboxMax[1] - m.bboxMin[1]) * 0.18));
     const at = this.accSpot(m, bone, bind);
     const n = this.accessories.filter((a) => a.shape === shape).length + 1;
-    const acc: Accessory = { name: `${t(`shape.${shape}` as Key)} ${n}`, shape, bone, color: [220, 40, 40], ...placeAt(bind, at, size) };
+    let id = newAccId();
+    while (this.docs.has(accDoc(id))) id = newAccId();
+    const acc: Accessory = { id, name: `${t(`shape.${shape}` as Key)} ${n}`, shape, bone, color: [220, 40, 40], ...placeAt(bind, at, size) };
     this.editAcc((list) => {
       list.push(acc);
       this.accSel = list.length - 1;
     });
+    if (this.tool !== "wand") this.setTool("wand");
   }
   private accSpot(m: ModelData, bone: string, bind: number[]): Vec3 {
     const o = boneOrigin(bind);
@@ -1667,6 +1701,7 @@ export class Editor {
   }
   private setAccMode(mode: GizmoMode) {
     this.accMode = mode;
+    if (this.tool !== "wand") this.setTool("wand");
     this.preview.rig?.setMode(mode);
     this.renderAccPanel();
   }
@@ -1716,8 +1751,8 @@ export class Editor {
     const color = $("acc-color") as HTMLInputElement;
     const rgb = (): Vec3 => [1, 3, 5].map((k) => parseInt(color.value.slice(k, k + 2), 16)) as Vec3;
     color.addEventListener("input", () => {
-      const i = this.accSel;
-      if (i >= 0) this.preview.rig?.apply(i, { ...this.accessories[i], color: rgb() });
+      const a = this.accessories[this.accSel];
+      if (a) this.accColorDoc(a.id, rgb());
     });
     color.addEventListener("change", () => {
       const i = this.accSel;
@@ -1961,7 +1996,6 @@ export class Editor {
   }
   private down3d(e: PointerEvent) {
     if (this.mode !== "3d" || e.altKey || this.tool === "hand" || this.preview.navigating || (e.button !== 0 && e.button !== 2) || !this.bundle || (e.button === 0 && this.preview.rig?.grab(e.clientX, e.clientY))) return;
-    if (e.button === 0 && this.pickAccessory(e.clientX, e.clientY)) return;
     if (this.anim) {
       if (e.button === 0) this.toast(t("p3d.poseHint"), "ok");
       return;
@@ -1969,6 +2003,9 @@ export class Editor {
     if (e.button === 2 && this.tool !== "picker") return;
     const hit = this.preview.hitAt(e.clientX, e.clientY);
     if (!hit) return;
+    const acc = isAccDoc(hit.texture) ? this.accessories.findIndex((a) => accDoc(a.id) === hit.texture) : -1;
+    if (acc >= 0 && acc !== this.accSel) this.selectAcc(acc, false);
+    if (acc >= 0 && this.tool === "wand") return;
     const right = e.button === 2;
     if (this.tool === "picker" || this.tool === "wand" || this.tool === "fill") {
       this.pendingClick = { hit, right };
@@ -2083,7 +2120,7 @@ export class Editor {
   }
   private trackMirror(hit: SurfaceHit, geo: SurfaceGeo, d: Doc, painted: number[], touched: number[], radius: number) {
     const st = this.stroke3d!;
-    if (!this.opts.showMirror) return;
+    if (!this.opts.showMirror || isAccDoc(d.name)) return;
     const own = this.ownersOf(hit.sub, d.w, d.h);
     if (!own) return;
     const near = new Set(touched);
@@ -2117,7 +2154,7 @@ export class Editor {
     for (const d of this.docsForTexture(hit.texture)) {
       const L = this.paintable(d, d !== this.current);
       if (!L) continue;
-      const mask = hit.part !== 0xffff ? partMaskOf(geo, hit.part, d.w, d.h) : null;
+      const mask = isAccDoc(d.name) ? new Uint8Array(d.w * d.h).fill(255) : hit.part !== 0xffff ? partMaskOf(geo, hit.part, d.w, d.h) : null;
       if (!mask) continue;
       const snap = L.pixels!.slice();
       const rect = fillMask(L.pixels!, d.w, d.h, mask, color, this.opts.fillOpacity, d.selection);
@@ -2191,24 +2228,25 @@ export class Editor {
   }
   private renderSwitcherButton() {
     const d = this.current;
-    const x = d && this.character?.textures.find((t) => t.name === d.name);
+    const x = d && (this.character?.textures.find((t) => t.name === d.name) ?? (isAccDoc(d.name) ? { width: d.w, height: d.h, format: "CMPR" } : null));
     if (!d || !x || this.docs.get(d.name) !== d) return;
     $("tex-switch-thumb").innerHTML = `<img src="${this.thumb(d.name)}" alt="" />`;
     $("tex-switch-name").textContent = this.surfaceName(d.name);
-    $("tex-switch-meta").textContent = `${d.name} · ${x.width}×${x.height} · ${x.format}${this.edited(d.name) ? " · " + t("edit.edited") : ""}`;
+    $("tex-switch-meta").textContent = `${isAccDoc(d.name) ? t("acc.title") : d.name} · ${x.width}×${x.height} · ${x.format}${this.edited(d.name) ? " · " + t("edit.edited") : ""}`;
     $("lay-surface").textContent = `· ${this.surfaceName(d.name)}`;
   }
   private renderSwitcher() {
     const pop = $("tex-pop");
     const ch = this.character;
     if (!ch) return;
-    pop.innerHTML = `<ul class="tex-grid" role="listbox">${ch.textures
+    const accs = this.accessories.map((a) => ({ name: accDoc(a.id), width: TEX, height: TEX, menu: false, acc: true }));
+    pop.innerHTML = `<ul class="tex-grid" role="listbox">${[...ch.textures, ...accs]
       .map((x) => {
         const ed = this.edited(x.name);
         const xd = this.docs.get(x.name);
         const derived = !!this.linkOf(x.name) || (!!this.shareOf(x.name) && !!xd && !isEdited(xd) && ed);
         const badges = [ed ? `<i class="b ed">${esc(t("edit.edited"))}</i>` : "", derived ? `<i class="b">${esc(t("edit.auto"))}</i>` : "", x.menu ? `<i class="b">${esc(t("edit.menu"))}</i>` : ""].join("");
-        return `<li role="option" tabindex="0" data-name="${esc(x.name)}" class="${x.name === this.current?.name ? "on" : ""}" aria-selected="${x.name === this.current?.name}"><span class="thumb checker"><img src="${this.thumb(x.name)}" alt="" /></span><b>${esc(this.surfaceName(x.name))}</b><small class="tech">${esc(x.name)} · ${x.width}×${x.height}</small><span class="badges">${badges}</span></li>`;
+        return `<li role="option" tabindex="0" data-name="${esc(x.name)}" class="${x.name === this.current?.name ? "on" : ""}" aria-selected="${x.name === this.current?.name}"><span class="thumb checker"><img src="${this.thumb(x.name)}" alt="" /></span><b>${esc(this.surfaceName(x.name))}</b><small class="tech">${esc("acc" in x ? t("acc.title") : x.name)} · ${x.width}×${x.height}</small><span class="badges">${badges}</span></li>`;
       })
       .join("")}</ul>`;
     pop.querySelectorAll<HTMLElement>("li[data-name]").forEach((li) => {
@@ -2354,13 +2392,18 @@ export class Editor {
   }
   async commitAll() {
     for (const d of this.docs.values()) {
+      if (isAccDoc(d.name)) continue;
       const ed = this.effectiveEdited(d);
       const png = ed ? await pngDataUrl(this.pixelsOf(d), d.w, d.h) : null;
       await invoke<boolean>("commit_texture", { name: d.name, png, summary: this.summary(d) });
     }
   }
   editedDocs() {
-    return [...this.docs.values()].filter((d) => this.effectiveEdited(d));
+    return [...this.docs.values()].filter((d) => !isAccDoc(d.name) && this.effectiveEdited(d));
+  }
+  projectDocs() {
+    const live = new Set(this.accessories.map((a) => accDoc(a.id)));
+    return [...this.docs.values()].filter((d) => !isAccDoc(d.name) || live.has(d.name));
   }
   relabel() {
     applyStatic($("view-edit"));
