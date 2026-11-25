@@ -421,9 +421,8 @@ async function pickImage() {
 
 const TAGS = ["body", "eyes", "bike", "low", "accessories"] as const;
 async function applyProject(p: Project, docs: typeof editor.docs) {
-  const res = await applyDocs(p, docs);
   editor.setAccessories(accessoriesOf(p));
-  return res;
+  return applyDocs(p, docs);
 }
 function renderCharactersHead() {
   const p = state.project;
@@ -527,7 +526,7 @@ async function saveCharacter(): Promise<boolean> {
   if (!ch || !p) return false;
   const changes = editor.changes;
   const m = await run(t("busy.wait"), async () => {
-    const project = await serialize(editor.docs.values(), { code: ch.code, name: ch.name }, VERSION, editor.accessories);
+    const project = await serialize(editor.projectDocs(), { code: ch.code, name: ch.name }, VERSION, editor.accessories);
     const meta = await invoke<Meta>("project_char_write", { id: p.id, code: ch.code, name: ch.name, project, edits: editor.editTags() });
     await invoke("autosave_clear", { id: p.id, code: ch.code }).catch(() => {});
     return meta;
@@ -563,7 +562,7 @@ async function autosave() {
   if (!ch || !p || !dirty() || editor.changes === state.autosavedAt) return;
   const changes = editor.changes;
   try {
-    await invoke("autosave_write", { id: p.id, code: ch.code, project: await serialize(editor.docs.values(), { code: ch.code, name: ch.name }, VERSION, editor.accessories) });
+    await invoke("autosave_write", { id: p.id, code: ch.code, project: await serialize(editor.projectDocs(), { code: ch.code, name: ch.name }, VERSION, editor.accessories) });
     state.autosavedAt = changes;
   } catch {}
 }
@@ -639,7 +638,7 @@ async function exportMod() {
       await applyProject(saved, editor.docs);
       editor.applied();
       await editor.commitAll();
-      if ((await invoke<number>("pack_stage", { accessories: editor.exportAccessories() })) > 0) staged++;
+      if ((await invoke<number>("pack_stage", { accessories: await editor.exportAccessories() })) > 0) staged++;
     }
     state.character = null;
     unlisten = await listen<Progress>("mkss-progress", (ev) => {

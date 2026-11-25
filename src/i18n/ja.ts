@@ -471,6 +471,8 @@ const ja: Dict = {
   "acc.empty": "アクセサリーはまだありません。形を追加して、モデル上でハンドルをドラッグしてください。",
   "acc.noSkeleton": "アクセサリーはフルディテールのモデルで編集します。",
   "acc.limit": "1 キャラクターにつき最大 {n} 個までです。",
+  "acc.surface": "アクセサリー：{name}",
+  "acc.toolHint": "選択ツール（W）で移動、ペイントツールで塗ります。",
   "acc.otherOutfit": "このアクセサリーは、この衣装にないボーンに付いています。",
   "tag.accessories": "アクセサリー",
   "shape.sphere": "球",

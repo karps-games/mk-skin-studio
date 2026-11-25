@@ -110,7 +110,7 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
   if(cmd==='autosave_clear'){delete store['auto:'+args.id+':'+args.code];persist();return null;}
   if(cmd==='pack_begin'){window.pack=[];return null;}
   if(cmd==='pack_stage'){const acc=(args&&args.accessories)||[];window.pack=pack.filter(x=>x.code!==lastLoaded);if(committed.size||acc.length)pack.push({code:lastLoaded,textures:[...committed].sort(),accessories:acc});return committed.size+acc.length;}
-  if(cmd==='accessory_shapes')return ['sphere','box','cylinder','cone','ring'].map(name=>({name,positions:[-.5,-.5,-.5,.5,-.5,-.5,.5,.5,-.5,-.5,.5,-.5,-.5,-.5,.5,.5,-.5,.5,.5,.5,.5,-.5,.5,.5],normals:[-1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,1,-1,1,1,1,1,-1,1,1].map(v=>v*0.577),uvs:new Array(16).fill(0),indices:[0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7]}));
+  if(cmd==='accessory_shapes')return ['sphere','box','cylinder','cone','ring'].map(name=>({name,positions:[-.5,-.5,-.5,.5,-.5,-.5,.5,.5,-.5,-.5,.5,-.5,-.5,-.5,.5,.5,-.5,.5,.5,.5,.5,-.5,.5,.5],normals:[-1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,1,-1,1,1,1,1,-1,1,1].map(v=>v*0.577),uvs:[.1,.1,.9,.1,.9,.9,.1,.9,.1,.1,.9,.1,.9,.9,.1,.9],indices:[0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7]}));
   if(cmd==='pack_file_name')return args.name.replace(/[^A-Za-z0-9 _.-]/g,' ').trim()+'.zip';
   if(cmd==='build_pack'){if(!pack.length)throw 'E:build.nothing';return {path:args.out,bytes:15192685,files:pack.length*48+1,textures:pack.reduce((a,x)=>a+x.textures.length,0)};}
   if(cmd==='plugin:window|close'||cmd==='plugin:window|destroy'){window.closedWindow=(window.closedWindow||0)+1;return null;}
@@ -862,7 +862,7 @@ async function accessories() {
   await value(`(()=>{const s=document.getElementById('acc-add');s.value='cone';s.dispatchEvent(new Event('change'));})()`);
   await sleep(150);
   const a = await value(`JSON.stringify(${E}.accessories)`);
-  check(`${T} adding a shape attaches it to the head and selects it`, await value(`${E}.accessories.length===1 && ${E}.accessories[0].shape==='cone' && ${E}.accessories[0].bone==='face_1' && ${E}.accSel===0 && document.querySelectorAll('#acc-list li.on').length===1 && ${R}.attached`), a);
+  check(`${T} adding a shape attaches it to the head, selects it and shows the handles`, await value(`${E}.accessories.length===1 && ${E}.accessories[0].shape==='cone' && ${E}.accessories[0].bone==='face_1' && ${E}.accSel===0 && document.querySelectorAll('#acc-list li.on').length===1 && ${R}.attached && ${E}.tool==='wand'`), a);
   check(`${T} the accessory is drawn and marks the character as changed`, (await sig()) !== before && (await value(`${E}.changes`)) > changes && (await value(`${R}.shown(0)`)), "");
   check(`${T} properties show the bone, colour and position`, await value(`!document.getElementById('acc-props').classList.contains('hidden') && document.getElementById('acc-bone').value==='face_1' && document.getElementById('acc-bone').selectedOptions[0].textContent==='Head' && document.getElementById('acc-color').value==='#dc2828' && Number(document.getElementById('acc-y').value)===${E}.accessories[0].position[1]`), "");
   await value(`${E}.undo()`);
@@ -895,12 +895,13 @@ async function accessories() {
   await value(`${E}.undo()`);
   check(`${T} undo puts the handle drag back`, (await value(`${E}.accessories[0].position.slice()`)).every((v, i) => Math.abs(v - p0[i]) < 1e-6), "");
   await value(`${E}.selectAcc(-1)`);
+  await value(`${E}.setTool('wand')`);
   const c2 = await value(`${R}.screenOf(0)`);
   await mouse("mouseMoved", c2[0], c2[1], "none");
   await mouse("mousePressed", c2[0], c2[1]);
   await mouse("mouseReleased", c2[0], c2[1]);
   await sleep(100);
-  check(`${T} clicking an accessory on the model selects it`, (await value(`${E}.accSel`)) === 0 && !(await value(`${E}.editedDocs().length`)), "");
+  check(`${T} clicking an accessory with the part tool selects it`, (await value(`${E}.accSel`)) === 0 && !(await value(`${E}.editedDocs().length`)), "");
   await value(`(()=>{const s=document.getElementById('p3d-anim');s.value='drift_l';s.dispatchEvent(new Event('change'));})()`);
   await sleep(300);
   await value(`${E}.togglePlay()`);
@@ -914,18 +915,34 @@ async function accessories() {
   const lay = await value(`(()=>{const p=document.getElementById('acc-panel').getBoundingClientRect(),c=document.querySelector('.color-panel').getBoundingClientRect(),b=document.querySelector('.ed-right').getBoundingClientRect();const parts=document.querySelector('.parts-panel').getBoundingClientRect();return [p.bottom<=c.top+1,c.bottom<=b.bottom+1,parts.height>=60,document.getElementById('acc-panel').scrollWidth<=document.getElementById('acc-panel').clientWidth+1];})()`);
   check(`${T} panel fits the right column at 1280x720`, lay.every(Boolean), lay);
   await value(`document.querySelector('#acc-list li[data-i="0"] .vis').click()`);
-  check(`${T} hidden accessories are not drawn nor exported`, (await value(`!${R}.shown(0) && ${E}.exportAccessories().length===0`)), "");
+  check(`${T} hidden accessories are not drawn nor exported`, (await value(`${E}.exportAccessories().then((x)=>!${R}.shown(0) && x.length===0)`)), "");
   await value(`document.querySelector('#acc-list li[data-i="0"] .vis').click()`);
-  const ex = await value(`JSON.stringify(${E}.exportAccessories())`);
+  const ex = await value(`${E}.exportAccessories().then(JSON.stringify)`);
   check(`${T} export sends shape, bone, transform and colour only`, JSON.stringify(Object.keys(JSON.parse(ex)[0]).sort()) === JSON.stringify(["bone", "color", "position", "rotation", "scale", "shape"]), ex);
   check(`${T} edit tags list accessories`, (await value(`${E}.editTags().join()`)) === "accessories", "");
+  const id = await value(`${E}.accessories[0].id`);
+  const doc = `${E}.docs.get('acc:${id}')`;
+  check(`${T} every accessory has its own texture`, await value(`${doc}.w===64 && ${doc}.h===64 && Array.from(${doc}.original.slice(0,4)).join()==='220,40,40,255' && ${R}.surfaces().length===1`), "");
+  await value(`${E}.setTool('brush')`);
+  check(`${T} paint tools hide the handles`, !(await value(`${R}.attached`)), "");
+  await value(`${E}.color.set([20,200,90,255])`);
+  const c3 = await value(`${R}.screenOf(0)`);
+  await drag([[c3[0] - 6, c3[1]], [c3[0], c3[1]], [c3[0] + 6, c3[1]]]);
+  await sleep(150);
+  check(`${T} painting on the accessory paints its texture only`, await value(`(()=>{const d=${doc};const c=window.__mkss.composite(d);let n=0;for(let i=0;i<c.length;i+=4)if(c[i]===20&&c[i+1]===200&&c[i+2]===90)n++;return n>0 && ${E}.current===d && ${E}.editedDocs().length===0;})()`), "");
+  check(`${T} the texture switcher lists the accessory`, await value(`(()=>{document.getElementById('tex-switch').click();const ok=!!document.querySelector('#tex-pop li[data-name="acc:${id}"]');document.getElementById('tex-pop').classList.add('hidden');return ok && document.getElementById('tex-switch-name').textContent==='Accessory: Cone 1';})()`), "");
+  await value(`(()=>{const i=document.getElementById('acc-color');i.value='#0000ff';i.dispatchEvent(new Event('input'));i.dispatchEvent(new Event('change'));})()`);
+  check(`${T} a new colour fills the background and keeps the painting`, await value(`(()=>{const d=${doc};const c=window.__mkss.composite(d);let blue=0,green=0;for(let i=0;i<c.length;i+=4){if(c[i]===0&&c[i+1]===0&&c[i+2]===255)blue++;if(c[i]===20&&c[i+1]===200)green++;}return blue>0&&green>0;})()`), "");
+  const ex2 = await value(`${E}.exportAccessories().then(JSON.stringify)`);
+  check(`${T} export carries the painted texture`, JSON.parse(ex2)[0].texture?.startsWith("data:image/png;base64,"), ex2.slice(0, 120));
+  await value(`${E}.select('mario_all')`);
   const savedAcc = await value(`JSON.stringify(${E}.accessories)`);
   await click("#btn-proj-save");
   await wait(`document.getElementById('btn-proj-save').disabled`);
   await leaveTo("characters");
   await openChar("mr");
   await wait(`${E}.accessories.length===1`);
-  check(`${T} saved projects reopen with their accessories`, await value(`${E}.accessories[0].shape==='cone' && JSON.stringify(${E}.accessories)===${JSON.stringify(savedAcc)} && document.querySelectorAll('#acc-list li[data-i]').length===1`), await value(`JSON.stringify(${E}.accessories)`));
+  check(`${T} saved projects reopen with their accessories`, await value(`${E}.accessories[0].shape==='cone' && JSON.stringify(${E}.accessories)===${JSON.stringify(savedAcc)} && window.__mkss.composite(${doc}).some((v,i)=>v!==${doc}.original[i]) && document.querySelectorAll('#acc-list li[data-i]').length===1`), await value(`JSON.stringify(${E}.accessories)`));
   await value(`document.querySelector('#acc-list li[data-i="0"] .del').click()`);
   check(`${T} delete removes it`, await value(`${E}.accessories.length===0`), "");
   await click("#mode-2d");
@@ -958,8 +975,13 @@ async function animations() {
   for (let k = 0; k < 10; k++) { seen.add(await value(`${E}.blinkFrame`)); await sleep(400); }
   check(`${T} expressions preview skips frames with a different size`, !seen.has('mario_eye.3') && seen.size >= 3, JSON.stringify([...seen]));
   const blinkSig = await sig();
-  await sleep(300);
-  check(`${T} body keeps moving on screen with expressions on`, (await sig()) !== blinkSig && (await sig()) !== restSig, "");
+  let moving = false;
+  for (let k = 0; k < 5 && !moving; k++) {
+    await sleep(300);
+    const now = await sig();
+    moving = now !== blinkSig && now !== restSig;
+  }
+  check(`${T} body keeps moving on screen with expressions on`, moving, "");
   await value(`document.getElementById('eye-blink').click()`);
   await sleep(100);
   check(`${T} play button shows playing`, await value(`document.getElementById('btn-p3d-play').getAttribute('aria-pressed')==='true'`), "");

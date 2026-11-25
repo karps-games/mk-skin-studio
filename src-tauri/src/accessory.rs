@@ -8,6 +8,8 @@ use std::f32::consts::{PI, TAU};
 pub const SHAPES: [&str; 5] = ["sphere", "box", "cylinder", "cone", "ring"];
 pub const PREFIX: &str = "mkss_acc";
 pub const LIMIT: usize = 16;
+pub const TEX: u32 = 64;
+const PAD: f32 = 2.0 / TEX as f32;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +20,8 @@ pub struct Accessory {
     pub rotation: [f32; 3],
     pub scale: [f32; 3],
     pub color: [u8; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -40,13 +44,20 @@ fn vertex(m: &mut Mesh, p: [f32; 3], n: [f32; 3], uv: [f32; 2]) -> u16 {
     (m.positions.len() - 1) as u16
 }
 
-fn grid(m: &mut Mesh, cols: usize, rows: usize, at: impl Fn(f32, f32) -> ([f32; 3], [f32; 3])) {
+type Rect = [f32; 4];
+
+fn inset(r: Rect) -> Rect {
+    [r[0] + PAD, r[1] + PAD, r[2] - PAD, r[3] - PAD]
+}
+
+fn grid(m: &mut Mesh, cols: usize, rows: usize, rect: Rect, at: impl Fn(f32, f32) -> ([f32; 3], [f32; 3])) {
     let base = m.positions.len() as u16;
-    for r in 0..=rows {
+    let r = inset(rect);
+    for row in 0..=rows {
         for c in 0..=cols {
-            let (u, v) = (c as f32 / cols as f32, r as f32 / rows as f32);
+            let (u, v) = (c as f32 / cols as f32, row as f32 / rows as f32);
             let (p, n) = at(u, v);
-            vertex(m, p, n, [u, v]);
+            vertex(m, p, n, [r[0] + u * (r[2] - r[0]), r[1] + v * (r[3] - r[1])]);
         }
     }
     let w = cols as u16 + 1;
@@ -59,13 +70,15 @@ fn grid(m: &mut Mesh, cols: usize, rows: usize, at: impl Fn(f32, f32) -> ([f32; 
     }
 }
 
-fn disc(m: &mut Mesh, y: f32, r: f32, up: bool, segments: usize) {
+fn disc(m: &mut Mesh, y: f32, r: f32, up: bool, segments: usize, rect: Rect) {
     let ny = if up { 1.0 } else { -1.0 };
-    let center = vertex(m, [0.0, y, 0.0], [0.0, ny, 0.0], [0.5, 0.5]);
+    let q = inset(rect);
+    let (cu, cv, hu, hv) = ((q[0] + q[2]) / 2.0, (q[1] + q[3]) / 2.0, (q[2] - q[0]) / 2.0, (q[3] - q[1]) / 2.0);
+    let center = vertex(m, [0.0, y, 0.0], [0.0, ny, 0.0], [cu, cv]);
     let first = m.positions.len() as u16;
     for i in 0..segments {
         let a = i as f32 / segments as f32 * TAU;
-        vertex(m, [r * a.cos(), y, r * a.sin()], [0.0, ny, 0.0], [0.5 + 0.5 * a.cos(), 0.5 + 0.5 * a.sin()]);
+        vertex(m, [r * a.cos(), y, r * a.sin()], [0.0, ny, 0.0], [cu + hu * a.cos(), cv + hv * a.sin()]);
     }
     for i in 0..segments as u16 {
         let (a, b) = (first + i, first + (i + 1) % segments as u16);
@@ -76,7 +89,7 @@ fn disc(m: &mut Mesh, y: f32, r: f32, up: bool, segments: usize) {
 pub fn shape(kind: &str) -> Option<Mesh> {
     let mut m = Mesh::default();
     match kind {
-        "sphere" => grid(&mut m, 16, 10, |u, v| {
+        "sphere" => grid(&mut m, 16, 10, [0.0, 0.0, 1.0, 1.0], |u, v| {
             let (a, b) = (u * TAU, v * PI);
             let n = [b.sin() * a.cos(), b.cos(), b.sin() * a.sin()];
             (n.map(|x| x * 0.5), n)
@@ -88,7 +101,9 @@ pub fn shape(kind: &str) -> Option<Mesh> {
                     n[axis] = sign;
                     let (ua, va) = ((axis + 1) % 3, (axis + 2) % 3);
                     let (ua, va) = if sign > 0.0 { (va, ua) } else { (ua, va) };
-                    grid(&mut m, 1, 1, |u, v| {
+                    let k = axis * 2 + usize::from(sign > 0.0);
+                    let (cx, cy) = ((k % 3) as f32 / 3.0, (k / 3) as f32 / 2.0);
+                    grid(&mut m, 1, 1, [cx, cy, cx + 1.0 / 3.0, cy + 0.5], |u, v| {
                         let mut p = [0.0; 3];
                         p[axis] = sign * 0.5;
                         p[ua] = u - 0.5;
@@ -99,22 +114,22 @@ pub fn shape(kind: &str) -> Option<Mesh> {
             }
         }
         "cylinder" => {
-            grid(&mut m, 16, 1, |u, v| {
+            grid(&mut m, 16, 1, [0.0, 0.0, 1.0, 0.5], |u, v| {
                 let a = u * TAU;
                 ([0.5 * a.cos(), 0.5 - v, 0.5 * a.sin()], [a.cos(), 0.0, a.sin()])
             });
-            disc(&mut m, 0.5, 0.5, true, 16);
-            disc(&mut m, -0.5, 0.5, false, 16);
+            disc(&mut m, 0.5, 0.5, true, 16, [0.0, 0.5, 0.5, 1.0]);
+            disc(&mut m, -0.5, 0.5, false, 16, [0.5, 0.5, 1.0, 1.0]);
         }
         "cone" => {
             let k = 1.0 / 5f32.sqrt();
-            grid(&mut m, 16, 1, |u, v| {
+            grid(&mut m, 16, 1, [0.0, 0.0, 1.0, 0.5], |u, v| {
                 let a = u * TAU;
                 ([0.5 * v * a.cos(), 0.5 - v, 0.5 * v * a.sin()], [2.0 * k * a.cos(), k, 2.0 * k * a.sin()])
             });
-            disc(&mut m, -0.5, 0.5, false, 16);
+            disc(&mut m, -0.5, 0.5, false, 16, [0.25, 0.5, 0.75, 1.0]);
         }
-        "ring" => grid(&mut m, 20, 8, |u, v| {
+        "ring" => grid(&mut m, 20, 8, [0.0, 0.0, 1.0, 1.0], |u, v| {
             let (a, b) = (u * TAU, v * TAU);
             let n = [b.cos() * a.cos(), b.sin(), b.cos() * a.sin()];
             let r = 0.375 + 0.125 * b.cos();
@@ -192,9 +207,20 @@ pub fn base_bone(name: &str) -> &str {
     name.strip_prefix("pcd_").unwrap_or(name)
 }
 
-fn color_texture(c: [u8; 3]) -> Result<Vec<u8>, String> {
-    let pixels = [c[0], c[1], c[2], 255].repeat(64);
-    crate::texture::encode(&crate::texture::Rgba8 { width: 8, height: 8, pixels }, 14, 1)
+fn texture_of(a: &Accessory) -> Result<(u32, Vec<u8>), String> {
+    let img = match &a.texture {
+        Some(url) => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD.decode(url.trim_start_matches("data:image/png;base64,")).map_err(|_| "E:image.decode")?;
+            let img = crate::texture::load(&bytes)?;
+            if img.width > 4 * TEX || img.height > 4 * TEX {
+                return Err("E:image.size".into());
+            }
+            crate::texture::resize(&img, TEX, TEX)
+        }
+        None => crate::texture::Rgba8 { width: 8, height: 8, pixels: [a.color[0], a.color[1], a.color[2], 255].repeat(64) },
+    };
+    Ok((img.width, crate::texture::encode(&img, 14, 1)?))
 }
 
 fn body(l: &Layout) -> Option<(String, String)> {
@@ -204,7 +230,8 @@ fn body(l: &Layout) -> Option<(String, String)> {
 pub fn decorate(brres: &[u8], list: &[Accessory], pose: Option<&Pose>) -> Result<Vec<u8>, String> {
     let mut a = Archive::parse(brres)?;
     for (i, acc) in list.iter().enumerate() {
-        a.add_texture(&format!("{PREFIX}{i}"), 8, 8, 14, 1, &color_texture(acc.color)?)?;
+        let (size, data) = texture_of(acc)?;
+        a.add_texture(&format!("{PREFIX}{i}"), size, size, 14, 1, &data)?;
     }
     for m in a.members.iter_mut().filter(|m| m.bytes.starts_with(b"MDL0")) {
         if !matches!(m.name.as_str(), "model" | "model_cpu" | "model_lod") {
@@ -326,7 +353,7 @@ mod tests {
     use super::*;
 
     fn acc(shape: &str, bone: &str) -> Accessory {
-        Accessory { shape: shape.into(), bone: bone.into(), position: [1.0, 2.0, 3.0], rotation: [10.0, 20.0, 30.0], scale: [12.0, 8.0, 10.0], color: [200, 40, 40] }
+        Accessory { shape: shape.into(), bone: bone.into(), position: [1.0, 2.0, 3.0], rotation: [10.0, 20.0, 30.0], scale: [12.0, 8.0, 10.0], color: [200, 40, 40], texture: None }
     }
 
     #[test]
@@ -352,6 +379,29 @@ mod tests {
             }
         }
         assert!(shape("pyramid").is_none());
+        for name in SHAPES {
+            let m = shape(name).unwrap();
+            let n = TEX as usize;
+            let mut hits = vec![0u8; n * n];
+            for t in &m.triangles {
+                let [a, b, c] = t.map(|i| m.uvs[i as usize]);
+                let area = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+                if area.abs() < 1e-9 {
+                    continue;
+                }
+                for y in 0..n {
+                    for x in 0..n {
+                        let p = [(x as f32 + 0.5) / n as f32, (y as f32 + 0.5) / n as f32];
+                        let w = |a: [f32; 2], b: [f32; 2]| ((b[0] - a[0]) * (p[1] - a[1]) - (p[0] - a[0]) * (b[1] - a[1])) / area;
+                        if w(b, c) > 1e-4 && w(c, a) > 1e-4 && w(a, b) > 1e-4 {
+                            hits[y * n + x] += 1;
+                        }
+                    }
+                }
+            }
+            assert!(hits.iter().all(|&h| h <= 1), "{name} paints one place per texel");
+            assert!(m.uvs.iter().flatten().all(|&v| (PAD - 1e-6..=1.0 - PAD + 1e-6).contains(&v)), "{name} keeps a margin");
+        }
         assert_eq!(shapes().len(), SHAPES.len());
     }
 
@@ -365,6 +415,29 @@ mod tests {
         assert_eq!(full_file("Race/Kart/sa_kart-mr_4.szs"), "Race/Kart/sa_kart-mr.szs");
     }
 
+    fn painted(size: u32) -> String {
+        let pixels = (0..size * size).flat_map(|i| [(i % 256) as u8, 90, 200, 255]).collect();
+        crate::texture::data_url(&crate::texture::Rgba8 { width: size, height: size, pixels }).unwrap()
+    }
+
+    #[test]
+    fn painted_accessories_keep_their_texture() {
+        let mut a = acc("box", "face_1");
+        assert_eq!(texture_of(&a).unwrap().0, 8, "plain colour");
+        a.texture = Some(painted(TEX));
+        let (size, data) = texture_of(&a).unwrap();
+        assert_eq!(size, TEX);
+        assert_eq!(data.len(), crate::brres::data_len(14, TEX, TEX, 1).unwrap());
+        a.texture = Some(painted(32));
+        assert_eq!(texture_of(&a).unwrap().0, TEX, "other sizes are resized");
+        a.texture = Some(painted(4 * TEX + 4));
+        assert!(texture_of(&a).is_err());
+        a.texture = Some("data:image/png;base64,AAAA".into());
+        assert!(texture_of(&a).is_err());
+        let json = serde_json::to_string(&acc("box", "face_1")).unwrap();
+        assert!(!json.contains("texture"));
+    }
+
     fn near(a: [f32; 3], b: [f32; 3], tol: f32) -> bool {
         (0..3).all(|k| (a[k] - b[k]).abs() <= tol)
     }
@@ -374,7 +447,8 @@ mod tests {
         let Some(dir) = std::env::var_os("MKSS_TEST_GAME_DIR").and_then(|p| crate::game::resolve_root(std::path::Path::new(&p))) else {
             return;
         };
-        let list = [acc("cone", "face_1"), acc("sphere", "wrist_r1"), acc("ring", "spin")];
+        let mut list = [acc("cone", "face_1"), acc("sphere", "wrist_r1"), acc("ring", "spin")];
+        list[1].texture = Some(painted(TEX));
         let mut checked = 0;
         for ch in crate::game::scan(&dir).unwrap() {
             let full = ch.files.iter().find(|f| full_file(f) == **f).unwrap().clone();
@@ -431,6 +505,9 @@ mod tests {
                         }
                     }
                 }
+                let texs = crate::brres::textures(&out).unwrap();
+                let size = |n: &str| texs.iter().find(|t| t.name == n).map(|t| t.width);
+                assert_eq!((size("mkss_acc0"), size("mkss_acc1")), (Some(8), Some(TEX)), "{} {rel}", ch.code);
                 let packed = replace_member(&crate::skin::read_archive(&dir, &rel).unwrap(), &member_of(&dir, &rel, &ch.code), &out).unwrap();
                 assert!(crate::u8arc::parse(&packed).is_ok());
                 checked += 1;
